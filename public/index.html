@@ -106,6 +106,7 @@
   <div class="card tall">
     <div class="grabber"></div>
     <div class="sheet-nav"><button class="link close">Cancel</button><b>New chat</b><span></span></div>
+    <div id="new-computers" class="chips in-sheet" hidden></div>
     <label class="search">
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="7" cy="7" r="5"/><path d="m11 11 3.5 3.5"/></svg>
       <input id="new-search" type="search" placeholder="Search projects" autocomplete="off" enterkeyhint="search">
@@ -116,7 +117,7 @@
         <span class="pick-text"><b>Whole project folder</b><small>For a new project, or work across projects</small></span>
       </button>
     </div>
-    <div class="section-title">Your projects</div>
+    <div id="projects-title" class="section-title">Your projects</div>
     <div id="project-list" class="group"></div>
   </div>
 </div>
@@ -127,6 +128,7 @@
     <div class="group">
       <button id="read-all" class="cell">Read all</button>
       <button id="sound-toggle" class="cell">Reply sound<span id="sound-state" class="muted"></span></button>
+      <button id="computers-btn" class="cell">Computers<span id="computers-count" class="muted"></span></button>
     </div>
     <button class="btn plain close">Cancel</button>
   </div>
@@ -144,10 +146,11 @@
     <div class="tiles">
       <button id="info-call" class="tile"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M5 3.5h3.2l1.6 4-2.1 1.5a11 11 0 0 0 7.3 7.3l1.5-2.1 4 1.6V19a1.8 1.8 0 0 1-1.9 1.8C10.3 20.3 3.7 13.7 3.2 5.4A1.8 1.8 0 0 1 5 3.5z"/></svg><span>Call</span></button>
       <button id="info-screen" class="tile"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4" width="19" height="13" rx="2"/><path d="M8 21h8M12 17v4M6.5 8.5l2.5 2-2.5 2M11 12.5h3"/></svg><span>Screen</span></button>
-      <button id="open-mac" class="tile"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="11" rx="1.5"/><path d="M2 19.5h20"/></svg><span>Open on Mac</span></button>
+      <button id="open-mac" class="tile"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="11" rx="1.5"/><path d="M2 19.5h20"/></svg><span id="open-mac-label">Open on Mac</span></button>
       <button id="rename" class="tile"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13 7 4 4"/></svg><span>Rename</span></button>
     </div>
     <div class="group">
+      <div class="cell"><span>Computer</span><span id="info-computer" class="muted"></span></div>
       <div class="cell"><span>Folder</span><span id="info-folder" class="muted"></span></div>
       <div class="cell"><span>Started</span><span id="info-started" class="muted"></span></div>
       <div class="cell"><span>Replies from Claude</span><span id="info-count" class="muted"></span></div>
@@ -155,6 +158,16 @@
     <div class="group">
       <button id="end-chat" class="cell danger">End chat</button>
     </div>
+  </div>
+</div>
+
+<!-- Computers: every computer running claude-chat on your Tailscale network -->
+<div id="computers" class="sheet" hidden>
+  <div class="card">
+    <div class="grabber"></div>
+    <div class="sheet-nav"><span></span><b>Computers</b><button class="link right close">Done</button></div>
+    <div id="computer-list" class="group"></div>
+    <p class="sheet-note">A computer shows up here by itself once claude-chat is installed on it and it's signed in to the same Tailscale account.</p>
   </div>
 </div>
 

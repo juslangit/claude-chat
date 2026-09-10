@@ -53,6 +53,7 @@ Use Claude Code on the home Mac from your iPhone, like WhatsApp.
 | `bin/cchat` | Type `cchat` in any Mac Terminal to start a chat that also shows on the phone. |
 | `tmux.conf` | Makes the tmux windows look like a plain Terminal. |
 | `install.sh` | One-time setup (start at login, `cchat` command, Tailscale). Safe to re-run. |
+| `setup/` | One-line setup for another Mac (`mac.sh`) or a Windows PC (`windows.ps1` + `wsl.sh`), downloaded from this Mac. |
 | `data/` | Created when it runs: list of chats, the hook password, the log. Not in git. |
 | `dev/` | For testing changes to the phone page: a read-only test copy on port 4478 and iPhone-size screenshots. |
 
@@ -74,6 +75,24 @@ Use Claude Code on the home Mac from your iPhone, like WhatsApp.
 | Restart the server after changing code | `launchctl kickstart -k gui/$(id -u)/com.juslangit.claude-chat` |
 
 Running chats are not affected by restarting the server — they live in tmux.
+
+## More than one computer
+
+The iPhone app shows the chats of every computer running claude-chat on your Tailscale network, each
+labelled with its computer, and **+** asks which computer to start on (⋯ → Computers lists them).
+To add a computer:
+
+1. Install Tailscale on it and sign in with the same account as your iPhone.
+2. Paste one line — it installs everything, copies your projects from GitHub, and pairs Syncthing:
+   - another Mac, in Terminal: `curl -fsSL https://luqman-mac.tail8806f8.ts.net/setup/mac | bash`
+   - a Windows PC, in PowerShell: `irm https://luqman-mac.tail8806f8.ts.net/setup/windows | iex`
+     (Claude Code runs in WSL, Windows' built-in Linux; projects stay in `Desktop\project`)
+3. Log in to Claude Code there once and trust the project folder, as the script says at the end.
+
+Projects move between computers through **GitHub**: when a chat starts in a project, the app first
+fetches the newest version (as long as nothing is unsaved on that computer). When you stop on one
+computer, ask Claude to save your work to GitHub. Your Claude notes (`~/.claude/knowledge`) stay the
+same everywhere through **Syncthing**.
 
 ## Setup (already done on this Mac)
 

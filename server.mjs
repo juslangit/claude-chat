@@ -25,8 +25,12 @@ const HOME = os.homedir();
 const PORT = Number(process.env.PORT || 4477);
 const WORKDIR = process.env.CLAUDE_CHAT_WORKDIR || path.join(HOME, "Desktop/project");
 const CLAUDE = process.env.CLAUDE_BIN || path.join(HOME, ".local/bin/claude");
-const TMUX = process.env.TMUX_BIN || "/opt/homebrew/bin/tmux";
-const DATA = path.join(ROOT, "data");
+const TMUX = process.env.TMUX_BIN || ["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/usr/bin/tmux"].find((p) => fs.existsSync(p)) || "tmux";
+const DATA = process.env.CLAUDE_CHAT_DATA || path.join(ROOT, "data");
+const SOCKET = process.env.CLAUDE_CHAT_SOCKET || "claude-chat"; // the tmux server's name; a test copy uses another
+// Windows runs claude-chat inside WSL (Windows' built-in Linux), with the projects in the normal Windows folder.
+const IS_WSL = os.release().toLowerCase().includes("microsoft");
+const OS = process.platform === "darwin" ? "mac" : IS_WSL ? "windows" : "linux";
 const CHATS_FILE = path.join(DATA, "chats.json");
 const SECRET_FILE = path.join(DATA, "secret");
 const HOOKS_FILE = path.join(DATA, "hooks.json");
@@ -52,7 +56,7 @@ fs.writeFileSync(HOOKS_FILE, JSON.stringify({
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const shq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
-const tmux = async (...args) => (await run(TMUX, ["-L", "claude-chat", "-f", path.join(ROOT, "tmux.conf"), ...args], { encoding: "utf8" })).stdout;
+const tmux = async (...args) => (await run(TMUX, ["-L", SOCKET, "-f", path.join(ROOT, "tmux.conf"), ...args], { encoding: "utf8" })).stdout;
 const until = async (check, ms, every = 250) => {
   for (const end = Date.now() + ms; Date.now() < end; await sleep(every)) if (await check()) return true;
   return false;
@@ -256,17 +260,22 @@ async function startClaude(c, { resume = false } = {}) {
   const args = [CLAUDE, resume ? "--resume" : "--session-id", c.sessionId, "-n", c.name,
     "--permission-mode", "bypassPermissions", "--settings", HOOKS_FILE];
   await tmux("new-session", "-d", "-s", c.tmux, "-c", c.cwd || WORKDIR, "-x", "140", "-y", "45",
-    "-e", `CLAUDE_CHAT_ID=${c.id}`, "-e", `CLAUDE_CHAT_PORT=${PORT}`, args.map(shq).join(" "));
+    "-e", `CLAUDE_CHAT_ID=${c.id}`, "-e", `CLAUDE_CHAT_PORT=${PORT}`, "-e", `CLAUDE_CHAT_DATA=${DATA}`, args.map(shq).join(" "));
   const r = rt(c.id);
   r.alive = true;
   r.status = "starting";
   chatChanged(c.id);
 }
 
-// Opens a Terminal window on the Mac attached to the chat's tmux session.
+// Opens a window on this computer attached to the chat's tmux session: Terminal on a Mac,
+// Windows Terminal on a Windows PC.
 async function openTerminal(c) {
+  if (IS_WSL) {
+    return run("/mnt/c/Windows/System32/cmd.exe", ["/c", "start", "", "wt.exe", "-w", "0", "new-tab", "--title", c.name,
+      "wsl.exe", "-e", TMUX, "-L", SOCKET, "attach", "-t", c.tmux]);
+  }
   const file = path.join(TERM_DIR, `${c.tmux}.command`);
-  fs.writeFileSync(file, `#!/bin/zsh\nprintf '\\e]0;%s\\a' ${shq(c.name)}\nexec ${TMUX} -L claude-chat attach -t ${c.tmux}\n`, { mode: 0o755 });
+  fs.writeFileSync(file, `#!/bin/zsh\nprintf '\\e]0;%s\\a' ${shq(c.name)}\nexec ${TMUX} -L ${SOCKET} attach -t ${c.tmux}\n`, { mode: 0o755 });
   await run("/usr/bin/open", ["-a", "Terminal", file]);
 }
 
@@ -280,9 +289,29 @@ function listProjects() {
       const dir = path.join(WORKDIR, d.name);
       let latest = changed(dir);
       for (const f of fs.readdirSync(dir)) latest = Math.max(latest, changed(path.join(dir, f)));
-      return { name: d.name, changedAt: latest };
+      return { name: d.name, changedAt: latest, remote: gitRemote(dir) };
     })
     .sort((a, b) => b.changedAt - a.changedAt);
+}
+
+// A project's GitHub address, read from its .git/config (null if it has none). Setup scripts on a
+// new computer use it to copy every project across.
+function gitRemote(dir) {
+  try { return fs.readFileSync(path.join(dir, ".git/config"), "utf8").match(/\[remote "origin"\][^[]*?url\s*=\s*(\S+)/)?.[1] || null; }
+  catch { return null; }
+}
+
+// Syncthing keeps your Claude notes (~/.claude/knowledge) the same on every computer. A new
+// computer's setup script sends its Syncthing ID here; this computer adds it and shares the folder.
+const SYNCTHING = ["/opt/homebrew/bin/syncthing", "/usr/local/bin/syncthing", "/usr/bin/syncthing"].find((p) => fs.existsSync(p));
+async function pairSync({ id, name } = {}) {
+  if (!SYNCTHING) throw fail("Syncthing isn't installed on this computer.", 409);
+  if (!/^[A-Z2-7]{7}(-[A-Z2-7]{7}){7}$/.test(String(id))) throw fail("That isn't a Syncthing ID.");
+  const st = (...args) => run(SYNCTHING, ["cli", "config", ...args], { timeout: 15000 });
+  const has = async (...args) => (await st(...args, "list")).stdout.includes(id);
+  if (!(await has("devices"))) await st("devices", "add", "--device-id", id, "--name", String(name || "Another computer").slice(0, 60));
+  if (!(await has("folders", "claude-knowledge", "devices"))) await st("folders", "claude-knowledge", "devices", "add", "--device-id", id);
+  return { id: (await run(SYNCTHING, ["device-id"])).stdout.trim(), folder: "claude-knowledge" };
 }
 
 // A project name from the phone → its folder. Only folders directly inside WORKDIR are allowed.
@@ -293,10 +322,28 @@ function projectDir(name) {
   return dir;
 }
 
+// Before Claude starts in a project, get the newest version from GitHub, so work saved on another
+// computer is here too. Only when nothing is unsaved here, and only if git can simply move forward.
+// Returns a sentence for the chat, or null when there was nothing to say.
+async function getLatest(cwd) {
+  const git = async (...args) => (await run("git", ["-C", cwd, ...args], { timeout: 20000, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } })).stdout.trim();
+  try {
+    if (!fs.existsSync(path.join(cwd, ".git"))) return null;
+    try { await git("rev-parse", "--abbrev-ref", "@{upstream}"); } catch { return null; } // not linked to GitHub
+    if (await git("status", "--porcelain")) return "This project has unsaved changes on this computer, so I didn't fetch the newest version from GitHub.";
+    const before = await git("rev-parse", "HEAD");
+    await git("pull", "--ff-only", "--quiet");
+    return before === (await git("rev-parse", "HEAD")) ? null : "Got the newest version of this project from GitHub.";
+  } catch (e) {
+    return `Couldn't get the newest version from GitHub: ${String(e.stderr || e.message).trim().split("\n")[0].slice(0, 140)}`;
+  }
+}
+
 async function createChat(name, { terminal = true, project } = {}) {
   const id = crypto.randomUUID();
   const now = new Date();
   const cwd = projectDir(project);
+  const synced = project ? await getLatest(cwd) : null;
   const c = {
     id, sessionId: id, tmux: `cc-${id.slice(0, 8)}`, createdAt: now.getTime(), cwd, transcript: transcriptPath(id, cwd),
     // A project chat is named after the project, like a WhatsApp chat is named after the contact.
@@ -305,6 +352,7 @@ async function createChat(name, { terminal = true, project } = {}) {
   };
   chats[id] = c;
   save();
+  if (synced) pushSystem(id, synced);
   await startClaude(c);
   if (terminal) openTerminal(c).catch((e) => console.error("could not open Terminal:", e.message));
   return c;
@@ -430,6 +478,9 @@ const KEYS = { up: "Up", down: "Down", left: "Left", right: "Right", enter: "Ent
 
 async function api(req, res, url) {
   if (url.pathname === "/api/projects" && req.method === "GET") return json(res, listProjects());
+  if (url.pathname === "/api/whoami") return json(res, { name: COMPUTER, os: OS, url: SELF_URL });
+  if (url.pathname === "/api/computers") return json(res, await otherComputers());
+  if (url.pathname === "/api/sync/pair" && req.method === "POST") return json(res, await pairSync(await body(req)));
   const m = url.pathname.match(/^\/api\/chats(?:\/([\w-]+))?(?:\/(\w+))?$/);
   if (!m) throw fail("Not found", 404);
   const [, id, action] = m;
@@ -510,9 +561,78 @@ function serveStatic(pathname, res) {
   fs.createReadStream(file).pipe(res);
 }
 
+// ── several computers ──────────────────────────────────────────────────────────────────────
+// The phone's page comes from one computer but talks to every computer running claude-chat on
+// your Tailscale network. Each one says who it is (/api/whoami) and lists the others it can see
+// (/api/computers), and lets pages from your own tailnet talk to it (CORS). Pages from anywhere
+// else are refused, so a website open on the phone can't reach your chats.
+
+// This computer's name, shown on the phone next to its chats ("Luqman's MacBook Pro").
+let COMPUTER = process.env.CLAUDE_CHAT_COMPUTER || os.hostname().replace(/\.local$/, "");
+if (!process.env.CLAUDE_CHAT_COMPUTER) {
+  try {
+    if (OS === "mac") COMPUTER = (await run("/usr/sbin/scutil", ["--get", "ComputerName"])).stdout.trim() || COMPUTER;
+    if (IS_WSL) COMPUTER = (await run("/mnt/c/Windows/System32/cmd.exe", ["/c", "echo %COMPUTERNAME%"])).stdout.trim() || COMPUTER;
+  } catch {}
+}
+
+// Tailscale's command-line tool. This Mac runs it in userspace mode with its own socket (D-004);
+// a Mac with the Tailscale app, a Windows PC (seen from WSL) or Linux keep it in the usual places.
+const USERSPACE_SOCKET = path.join(HOME, "Library/Application Support/tailscale-user/tailscaled.sock");
+const TAILSCALE = [
+  ["/opt/homebrew/opt/tailscale/bin/tailscale", `--socket=${USERSPACE_SOCKET}`],
+  ["/Applications/Tailscale.app/Contents/MacOS/Tailscale"],
+  ["/mnt/c/Program Files/Tailscale/tailscale.exe"],
+  ["/usr/bin/tailscale"],
+  ["/usr/local/bin/tailscale"],
+].filter(([bin, sock]) => fs.existsSync(bin) && (!sock || fs.existsSync(USERSPACE_SOCKET)));
+
+async function tailnetStatus() {
+  for (const [bin, ...args] of TAILSCALE) {
+    try { return JSON.parse((await run(bin, [...args, "status", "--json"], { timeout: 5000, maxBuffer: 8e6 })).stdout); } catch {}
+  }
+  return null;
+}
+
+let TAILNET = null;  // e.g. "tail8806f8.ts.net"
+let SELF_URL = null; // e.g. "https://luqman-mac.tail8806f8.ts.net"
+let peers = { at: 0, list: [] };
+async function otherComputers() {
+  if (Date.now() - peers.at < 30000) return peers.list;
+  const st = await tailnetStatus();
+  const dns = (d) => String(d || "").replace(/\.$/, "");
+  if (st?.Self?.DNSName) {
+    SELF_URL = `https://${dns(st.Self.DNSName)}`;
+    TAILNET = dns(st.Self.DNSName).split(".").slice(1).join(".");
+  }
+  const list = Object.values(st?.Peer || {})
+    .filter((p) => p.Online && /^(macos|windows|linux)$/i.test(p.OS) && p.DNSName)
+    .map((p) => ({ url: `https://${dns(p.DNSName)}`, os: p.OS }));
+  peers = { at: Date.now(), list };
+  return list;
+}
+await otherComputers();
+
+function originAllowed(origin) {
+  let host;
+  try { host = new URL(origin).hostname; } catch { return false; }
+  if (host === "127.0.0.1" || host === "localhost") return true;
+  return TAILNET ? host.endsWith(`.${TAILNET}`) : host.endsWith(".ts.net");
+}
+
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, "http://localhost");
+    const origin = req.headers.origin;
+    if (origin) {
+      if (!originAllowed(origin)) throw fail("Not allowed from that page.", 403);
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Vary", "Origin");
+      if (req.method === "OPTIONS") {
+        res.writeHead(204, { "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE", "Access-Control-Allow-Headers": "content-type", "Access-Control-Max-Age": "600" });
+        return res.end();
+      }
+    }
     if (url.pathname === "/hook" && req.method === "POST") {
       if (req.headers["x-secret"] !== SECRET) throw fail("Forbidden", 403);
       const b = await body(req);
@@ -526,6 +646,14 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (url.pathname.startsWith("/api/")) return await api(req, res, url);
+    // One-line setup for another computer, e.g.  curl -fsSL <this address>/setup/mac | bash
+    const setup = url.pathname.match(/^\/setup\/(mac|windows|wsl)$/);
+    if (setup) {
+      const file = path.join(ROOT, "setup", { mac: "mac.sh", windows: "windows.ps1", wsl: "wsl.sh" }[setup[1]]);
+      if (!SELF_URL) await otherComputers(); // learn this computer's Tailscale address
+      res.writeHead(200, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" });
+      return res.end(fs.readFileSync(file, "utf8").replaceAll("__HOME_URL__", SELF_URL || "__HOME_URL__"));
+    }
     serveStatic(url.pathname, res);
   } catch (e) {
     if (!e.status) console.error(e);
