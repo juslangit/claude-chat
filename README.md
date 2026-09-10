@@ -11,6 +11,9 @@ Use Claude Code on the home Mac from your iPhone, like WhatsApp.
   edits go ahead without asking. The deny list in `~/.claude/settings.json` (sudo, `rm -rf`, force-push…)
   still blocks those. If Claude Code does stop to ask something, the phone shows **Approve / Deny**
   (and the Mac's Terminal shows its usual prompt at the same time; either can answer).
+- When Claude asks you a **multiple-choice question**, it arrives as a message with a reply button for
+  each answer. Tap one, or type or say your own answer instead. Several questions come one at a time.
+  On a call, Claude reads the question and its choices out loud and you answer by talking.
 - The **screen** button (top right of a chat) shows exactly what the Mac's Terminal shows, with keys
   for menus (1–4, arrows, Enter, Esc).
 - It looks like WhatsApp on the iPhone: grey ticks mean Claude got your message, blue means it has
