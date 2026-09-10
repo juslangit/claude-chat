@@ -17,6 +17,7 @@ const state = {
   sound: read("sound", true),    // the pop when Claude answers
   lastStep: null,                // the open chat's latest step, for the "typing…" bubble
   computers: [],                 // every computer running claude-chat that this phone can reach
+  pinned: read("pinned", []),    // keys of pinned chats, newest pin first
 };
 // Chats from every computer share one list. A chat's key is "<computer>/<chat id>"; "home" is the
 // computer this page came from.
@@ -39,6 +40,28 @@ function splitVoice(text) {
   const s = String(text || ""), m = s.match(VOICE_TAG);
   return m ? { text: s.slice(0, m.index), kind: m[2] } : { text: s, kind: null };
 }
+// A photo you send reaches Claude as a line saying where it was saved; the phone shows the photo instead.
+const PHOTO_TAG = /^\[📷 photo from my phone: (.+?) — open it to see it\]\s*/u;
+function splitPhoto(text) {
+  const s = String(text || ""), m = s.match(PHOTO_TAG);
+  return m ? { photo: m[1].split("/").pop(), text: s.slice(m[0].length) } : { photo: null, text: s };
+}
+// A reply (swipe a message to the right) starts by quoting the message it answers.
+const REPLY_TAG = /^Replying to (your|my) message: "([\s\S]*?)"\n\n/;
+function splitReply(text) {
+  const s = String(text || ""), m = s.match(REPLY_TAG);
+  return m ? { quote: m[2], who: m[1] === "your" ? "Claude" : "You", text: s.slice(m[0].length) } : { quote: null, who: null, text: s };
+}
+// The chat list's preview: a photo shows as "📷 Photo", and a reply without the message it quotes.
+function previewOf(last) {
+  let s = String(last || "");
+  const you = s.startsWith("You: ");
+  if (you) s = s.slice(5);
+  s = splitReply(splitVoice(s).text).text;
+  const pic = splitPhoto(s);
+  if (pic.photo) s = `📷 ${pic.text || "Photo"}`;
+  return (you ? "You: " : "") + s;
+}
 
 function read(key, fallback) { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } }
 function write(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch {} }
@@ -51,6 +74,7 @@ const ICON = {
   chevron: `<svg class="chev" width="8" height="12" viewBox="0 0 8 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 2l4 4-4 4"/></svg>`,
   mic: `<svg class="voice" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>`,
   phone: `<svg class="voice" viewBox="0 0 24 24" fill="currentColor"><path d="M5 3.5h3.2l1.6 4-2.1 1.5a11 11 0 0 0 7.3 7.3l1.5-2.1 4 1.6V19a1.8 1.8 0 0 1-1.9 1.8C10.3 20.3 3.7 13.7 3.2 5.4A1.8 1.8 0 0 1 5 3.5z"/></svg>`,
+  pin: `<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M14.5 2.5l7 7-2.3.9-3.6 3.6.6 4.6-1.6 1.6-4.2-4.2L5 21.4 3.6 20l5.4-5.4-4.2-4.2 1.6-1.6 4.6.6 3.6-3.6z"/></svg>`,
 };
 
 // Talk to a computer's server (this one unless another is given).
@@ -117,6 +141,10 @@ function setComputerOnline(comp, on, since = Date.now()) {
   if (on) { comp.offlineSince = null; comp.lastSeen = null; } else comp.offlineSince ??= since;
   if (comp === home) setOnline(on);
   if (!changed) return;
+  if (on) {
+    tellLooking(document.visibilityState === "visible", [comp]); // a computer that's back hears whether you're looking
+    if (read("push", false)) shareSubscription(comp);           // and gets this phone's push address
+  }
   renderList();
   renderComputers();
   if (cur()?.comp === comp.id) renderChatChrome();
@@ -132,6 +160,7 @@ function setOnline(on) {
 }
 // iPhones pause pages in the background; catch up when you come back.
 document.addEventListener("visibilitychange", () => {
+  tellLooking(document.visibilityState === "visible");
   if (document.visibilityState !== "visible") return pauseCall();
   for (const comp of state.computers) {
     // Pings come every 20 s, so nothing for 25 s means the line died while the phone was away.
@@ -320,7 +349,8 @@ function matches(c) {
 const NOTHING = { all: "No chats found", unread: "No unread chats", working: "Claude isn't working in any chat right now", stopped: "No stopped chats" };
 
 function renderList() {
-  const all = [...state.chats.values()].sort((a, b) => !!b.pending - !!a.pending || b.lastAt - a.lastAt);
+  // Pinned chats first, then any waiting for you, then the most recent.
+  const all = [...state.chats.values()].sort((a, b) => isPinned(b) - isPinned(a) || !!b.pending - !!a.pending || b.lastAt - a.lastAt);
   const shown = all.filter(matches);
   $("#chat-list").innerHTML = !all.length
     ? `<div class="empty"><p>No chats yet.</p><p>Tap <b>+</b> to start one. A Terminal window with Claude Code opens on the Mac, ready to go.</p></div>`
@@ -343,22 +373,22 @@ function rowHtml(c) {
   } else if (isWorking(c)) {
     preview = `<span class="typing-text">${STATUS[c.status]}</span>`;
   } else {
-    const text = plain(splitVoice(c.lastText).text);
+    const text = plain(previewOf(c.lastText));
     // Your own last message gets ticks instead of "You:", the way WhatsApp shows it.
     preview = text.startsWith("You: ") ? ICON.ticks + esc(text.slice(5)) : esc(text || "No messages yet");
     if (c.status === "ended") preview = `Stopped · ${preview}`;
   }
   preview = whereLabel(c) + preview;
-  return `<button class="row${unread ? " unread" : ""}" data-id="${c.key}">${avatar(c)}
+  return `<button class="row${unread ? " unread" : ""}" data-id="${c.key}" data-swipe="${isPinned(c) ? "Unpin" : "Pin"}">${avatar(c)}
     <div class="meta">
       <div class="top"><span class="name">${esc(c.name)}</span><span class="time">${when(c.lastAt)}</span></div>
-      <div class="bottom"><span class="ptext">${preview}</span>${badge}</div>
+      <div class="bottom"><span class="ptext">${preview}</span>${badge}${isPinned(c) ? `<span class="pin">${ICON.pin}</span>` : ""}</div>
     </div></button>`;
 }
 
 $("#chat-list").addEventListener("click", (e) => {
   const row = e.target.closest(".row");
-  if (row) location.hash = `chat/${row.dataset.id}`;
+  if (row && Date.now() - swipedAt > 400) location.hash = `chat/${row.dataset.id}`; // not the end of a swipe
 });
 $("#chips").addEventListener("click", (e) => {
   const f = e.target.closest(".chip")?.dataset.filter;
@@ -378,6 +408,8 @@ listScroll.addEventListener("scroll", () => $("#list-nav").classList.toggle("scr
 function route() {
   endCall(); // leaving a chat hangs up
   saveDraft();
+  setReply(null);
+  closeFind();
   const m = location.hash.match(/^#chat\/(?:([\w-]+)\/)?([\w-]+)/); // #chat/<computer>/<chat>, or an old #chat/<chat>
   const id = m ? `${m[1] || "home"}/${m[2]}` : null;
   state.current = id;
@@ -562,10 +594,19 @@ function addMessage(box, m) {
   }
   const side = m.role === "user" ? "out" : "in";
   const spoken = side === "out" ? splitVoice(m.text) : { text: m.text, kind: null };
-  const body = side === "in" ? md(m.text) : esc(spoken.text);
+  // Your own messages can open with a quote (a swipe-to-reply) or a photo: both are shown, not spelled out.
+  const replied = side === "out" ? splitReply(spoken.text) : { quote: null, text: m.text };
+  const pic = side === "out" ? splitPhoto(replied.text) : { photo: null, text: m.text };
+  const quote = replied.quote ? `<span class="quote"><b>${replied.who}</b>${esc(replied.quote)}</span>` : "";
+  const photo = pic.photo ? `<img class="photo" src="${esc(photoUrl(pic.photo))}" alt="Photo you sent">` : "";
+  const body = side === "in" ? md(m.text) : quote + photo + esc(pic.text);
   const voice = spoken.kind ? ICON[spoken.kind === "call" ? "phone" : "mic"] : ""; // said out loud, not typed
-  box.append(el("div", `bubble ${side}${group.side === side ? "" : " tail"}`,
-    `${body}<span class="spacer${side === "out" ? " wide" : ""}${voice ? " voiced" : ""}"></span><span class="stamp">${voice}${clock(m.at)}${side === "out" ? ICON.ticks : ""}</span>`));
+  const bubble = el("div", `bubble ${side}${group.side === side ? "" : " tail"}`,
+    `${body}<span class="spacer${side === "out" ? " wide" : ""}${voice ? " voiced" : ""}"></span><span class="stamp">${voice}${clock(m.at)}${side === "out" ? ICON.ticks : ""}</span>`);
+  // What a swipe-to-reply quotes: the start of the message, as plain words.
+  bubble.dataset.who = side === "in" ? "claude" : "you";
+  bubble.dataset.quote = plain(side === "in" ? m.text : pic.text || (pic.photo ? "📷 Photo" : "")).slice(0, 300);
+  box.append(bubble);
   group.side = side;
   group.tools = null;
 }
@@ -597,8 +638,13 @@ function dayLabel(ts) {
   return d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: d.getFullYear() === now.getFullYear() ? undefined : "numeric" });
 }
 
-// Tap Claude's steps to see all of them.
-$("#messages").addEventListener("click", (e) => e.target.closest(".tools")?.classList.toggle("open"));
+// Tap Claude's steps to see all of them, or a photo to see it full screen.
+$("#messages").addEventListener("click", (e) => {
+  if (Date.now() - swipedAt < 400) return; // the end of a swipe, not a tap
+  const img = e.target.closest(".photo");
+  if (img) { $("#viewer-img").src = img.src; $("#viewer").hidden = false; return; }
+  e.target.closest(".tools")?.classList.toggle("open");
+});
 
 // Just enough Markdown for Claude's replies: code blocks, `code`, **bold**, headings, links.
 function md(src) {
@@ -857,6 +903,7 @@ function fillInfo(c) {
   $("#info-started").textContent = new Date(c.createdAt).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
   $("#info-count").textContent = c.count;
   $("#open-mac").disabled = c.status === "ended";
+  $("#pin-label").textContent = isPinned(c) ? "Unpin chat" : "Pin chat";
 }
 $("#info-screen").onclick = () => { openSheet("#screen"); pollScreen(); };
 $("#open-mac").onclick = async () => {
@@ -908,7 +955,10 @@ function sendMessage(text, key = state.current) {
     const { text: words, kind } = splitVoice(text);
     return reply(kind ? `${words} (said out loud, so a word may be misheard)` : words);
   }
-  return chatApi(c, "/send", { body: { text } });
+  // A swipe-to-reply goes in front, quoting the message you're answering, so Claude knows which one.
+  const quoting = key === state.current ? replyTo : null;
+  const full = quoting ? `Replying to ${quoting.who === "claude" ? "your" : "my"} message: "${quoting.text}"\n\n${text}` : text;
+  return chatApi(c, "/send", { body: { text: full } }).then((r) => { if (quoting && replyTo === quoting) setReply(null); return r; });
 }
 
 // One-tap replies, shown while Claude is waiting for you and the typing box is empty.
@@ -1241,6 +1291,261 @@ $("#call-skip").onclick = () => { // stop Claude talking and go straight to your
 };
 $("#call-approve").onclick = () => answer("allow");
 $("#call-deny").onclick = () => answer("deny");
+
+// ── swipe, like WhatsApp: a chat to pin it, a message to reply to it ────────
+
+// Swipe a row or a bubble to the right and it follows your finger a little way; let go past the mark
+// and it does its job. Up-and-down still scrolls (the styles give these touch-action: pan-y).
+let swipedAt = 0; // the browser ends a swipe with a tap; a tap straight after one is ignored
+function swipeable(box, selector, onSwipe) {
+  let s = null;
+  box.addEventListener("pointerdown", (e) => {
+    const el = e.target.closest(selector);
+    s = el && e.button <= 0 ? { el, x: e.clientX, y: e.clientY, dx: 0, on: false } : null;
+  });
+  box.addEventListener("pointermove", (e) => {
+    if (!s) return;
+    const dx = e.clientX - s.x, dy = e.clientY - s.y;
+    if (!s.on) {
+      if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) return void (s = null); // that's a scroll
+      if (dx < 12) return;
+      s.on = true;
+      s.el.classList.add("swiping");
+      try { box.setPointerCapture(e.pointerId); } catch {}
+    }
+    s.dx = Math.max(0, Math.min(dx, 90));
+    s.el.style.transform = `translateX(${s.dx}px)`;
+    s.el.classList.toggle("swipe-ready", s.dx > 60);
+  });
+  const end = () => {
+    const done = s;
+    s = null;
+    if (!done?.on) return;
+    swipedAt = Date.now();
+    done.el.style.transition = "transform .2s";
+    done.el.style.transform = "";
+    done.el.classList.remove("swiping", "swipe-ready");
+    setTimeout(() => (done.el.style.transition = ""), 220);
+    if (done.dx > 60) onSwipe(done.el);
+  };
+  box.addEventListener("pointerup", end);
+  box.addEventListener("pointercancel", end);
+}
+
+// Swipe one of the messages to reply to it. It's quoted above the typing box and goes in front of what
+// you send next, so Claude knows which message you mean.
+let replyTo = null; // { who: "claude" | "you", text }
+function setReply(r) {
+  replyTo = r;
+  $("#reply-bar").hidden = !r;
+  if (!r) return;
+  $("#reply-who").textContent = r.who === "claude" ? "Claude" : "You";
+  $("#reply-text").textContent = r.text;
+  input.focus();
+}
+$("#reply-cancel").onclick = () => setReply(null);
+swipeable($("#messages"), ".bubble.in:not(.tools), .bubble.out", (b) => b.dataset.quote && setReply({ who: b.dataset.who, text: b.dataset.quote }));
+
+// Pinned chats stay at the top of the list. Swipe a chat to the right to pin or unpin it, or use Chat
+// info. The pins are kept on this phone.
+const isPinned = (c) => state.pinned.includes(c.key);
+function togglePin(key) {
+  const on = !state.pinned.includes(key);
+  state.pinned = on ? [key, ...state.pinned] : state.pinned.filter((k) => k !== key);
+  write("pinned", state.pinned);
+  renderList();
+  if (cur()) fillInfo(cur());
+  toast(on ? "Pinned to the top" : "Unpinned");
+}
+swipeable($("#chat-list"), ".row", (row) => togglePin(row.dataset.id));
+$("#pin-chat").onclick = () => state.current && togglePin(state.current);
+
+// ── search inside a chat (Chat info → Search) ──────────────────────────────
+// Every match in the chat is marked. It starts at the newest; the arrows step through the rest.
+
+const finder = { hits: [], i: -1 };
+const canMark = !!(window.CSS?.highlights && window.Highlight); // marks words in place (Safari 17.2+)
+function openFind() {
+  $("#find").hidden = false;
+  $("#find-input").value = "";
+  $("#find-count").textContent = "";
+  $("#find-input").focus();
+}
+function closeFind() {
+  $("#find").hidden = true;
+  clearFind();
+}
+function clearFind() {
+  if (canMark) { CSS.highlights.delete("find"); CSS.highlights.delete("find-now"); }
+  for (const b of document.querySelectorAll(".hit, .hit-now")) b.classList.remove("hit", "hit-now");
+  finder.hits = [];
+  finder.i = -1;
+}
+const bubbleOf = (range) => range.startContainer.parentElement?.closest(".bubble");
+function runFind() {
+  clearFind();
+  const q = $("#find-input").value.trim().toLowerCase();
+  if (!q) return void ($("#find-count").textContent = "");
+  const walk = document.createTreeWalker($("#messages"), NodeFilter.SHOW_TEXT, {
+    acceptNode: (n) => (n.parentElement.closest(".stamp, .day, .tools-sum") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+  });
+  for (let n; (n = walk.nextNode());) {
+    const t = n.data.toLowerCase();
+    for (let at = t.indexOf(q); at >= 0; at = t.indexOf(q, at + q.length)) {
+      const r = new Range();
+      r.setStart(n, at);
+      r.setEnd(n, at + q.length);
+      finder.hits.push(r);
+    }
+  }
+  if (canMark) CSS.highlights.set("find", new Highlight(...finder.hits));
+  else for (const r of finder.hits) bubbleOf(r)?.classList.add("hit");
+  finder.i = finder.hits.length - 1; // the newest first, like WhatsApp
+  showHit();
+}
+function showHit() {
+  const n = finder.hits.length;
+  $("#find-count").textContent = n ? `${finder.i + 1} of ${n}` : "No results";
+  $("#find-up").disabled = finder.i <= 0;
+  $("#find-down").disabled = finder.i >= n - 1;
+  if (!n) return;
+  const r = finder.hits[finder.i], b = bubbleOf(r);
+  b?.closest(".tools")?.classList.add("open"); // a match among Claude's folded steps: unfold them
+  if (canMark) CSS.highlights.set("find-now", new Highlight(r));
+  else { for (const x of document.querySelectorAll(".hit-now")) x.classList.remove("hit-now"); b?.classList.add("hit-now"); }
+  (b || r.startContainer.parentElement).scrollIntoView({ block: "center", behavior: "smooth" });
+}
+function stepFind(by) {
+  if (!finder.hits.length) return;
+  finder.i = Math.max(0, Math.min(finder.hits.length - 1, finder.i + by));
+  showHit();
+}
+let findTimer;
+$("#find-input").addEventListener("input", () => { clearTimeout(findTimer); findTimer = setTimeout(runFind, 150); });
+$("#find-input").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); stepFind(-1); } });
+$("#find-up").onclick = () => stepFind(-1);
+$("#find-down").onclick = () => stepFind(1);
+$("#find-done").onclick = closeFind;
+$("#info-search").onclick = () => { closeSheets(); openFind(); };
+
+// ── photos ─────────────────────────────────────────────────────────────────
+// + in the typing bar picks a photo, or takes one. It's shrunk here to at most 1600 pixels across —
+// plenty for Claude, and quick to send — then saved on the computer, and Claude is told where it is.
+
+let photo = null; // { url, data } of the photo waiting to be sent
+const photoUrl = (name) => { const c = cur(); return c ? `${compOf(c).base}/api/chats/${c.id}/photos/${name}` : ""; };
+$("#attach").onclick = () => $("#photo-input").click();
+$("#photo-input").onchange = async (e) => {
+  const file = e.target.files?.[0];
+  e.target.value = ""; // so picking the same photo again still counts
+  if (!file) return;
+  try { photo = await shrink(file); } catch { return toast("That photo couldn't be opened."); }
+  $("#photo-preview").src = photo.url;
+  $("#photo-caption").value = input.value.trim(); // anything you'd typed becomes the caption
+  openSheet("#photo-sheet");
+};
+async function shrink(file, max = 1600) {
+  const src = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((resolve, reject) => { const i = new Image(); i.onload = () => resolve(i); i.onerror = reject; i.src = src; });
+    const scale = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+    const canvas = Object.assign(document.createElement("canvas"), { width: Math.round(img.naturalWidth * scale), height: Math.round(img.naturalHeight * scale) });
+    canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+    const url = canvas.toDataURL("image/jpeg", 0.85);
+    return { url, data: url.slice(url.indexOf(",") + 1) };
+  } finally { URL.revokeObjectURL(src); }
+}
+async function sendPhoto() {
+  const c = cur(), b = $("#photo-send");
+  if (!c || !photo || b.disabled) return;
+  const caption = $("#photo-caption").value.trim();
+  b.disabled = true;
+  b.classList.add("busy");
+  try {
+    await chatApi(c, "/photo", { body: { data: photo.data, caption }, timeout: 60000 });
+    if (caption && caption === input.value.trim()) { input.value = ""; grow(); saveDraft(); } // it went as the caption
+    photo = null;
+    closeSheets();
+  } catch (err) { toast(err.message); }
+  finally { b.disabled = false; b.classList.remove("busy"); }
+}
+$("#photo-send").onclick = sendPhoto;
+$("#photo-caption").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); sendPhoto(); } });
+$("#viewer").onclick = () => ($("#viewer").hidden = true);
+
+// ── notifications ──────────────────────────────────────────────────────────
+// ⋯ → Notifications. The iPhone allows them only in the Home Screen app. Every computer is given this
+// phone's push address, and sends one when Claude finishes or needs you — but not while you're looking
+// at the app (it tells them so every 20 seconds, and when you leave).
+
+const canPush = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+const onHomeScreen = () => navigator.standalone === true || matchMedia("(display-mode: standalone)").matches;
+const fromB64u = (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((s.length + 3) % 4)), (ch) => ch.charCodeAt(0));
+const toB64u = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("/sw.js").catch(() => {});
+  // Tapping a notification while the app is open: go to that chat.
+  navigator.serviceWorker.addEventListener("message", (e) => { if (e.data?.open) location.hash = `chat/${e.data.open}`; });
+}
+function renderNotify() { $("#notify-state").textContent = read("push", false) ? "On" : "Off"; }
+async function mySubscription() {
+  if (!canPush()) return null;
+  return (await navigator.serviceWorker.ready).pushManager.getSubscription();
+}
+async function shareSubscription(comp, sub) {
+  try {
+    sub ||= await mySubscription();
+    if (sub) await api("/api/push/subscribe", { body: sub.toJSON(), timeout: 8000 }, comp);
+  } catch {}
+}
+$("#notify-toggle").onclick = async () => {
+  if (read("push", false)) return turnOffNotifications();
+  if (!canPush()) {
+    return toast(/iPhone|iPad/.test(navigator.userAgent) && !onHomeScreen()
+      ? "Add this app to your Home Screen first (Share → Add to Home Screen), then turn notifications on in there."
+      : "Notifications don't work in this browser.");
+  }
+  // Asked straight away, while it still counts as your tap — iPhones insist on that.
+  if ((await Notification.requestPermission()) !== "granted") return toast("Notifications are off for this app. Turn them on in Settings → Notifications → Claude Chats.");
+  try {
+    const { key } = await api("/api/push/key");
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (sub?.options?.applicationServerKey && toB64u(sub.options.applicationServerKey) !== key) { await sub.unsubscribe(); sub = null; }
+    sub ||= await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: fromB64u(key) });
+    await Promise.all(state.computers.filter((c) => c.online).map((c) => shareSubscription(c, sub)));
+    write("push", true);
+    renderNotify();
+    const test = await api("/api/push/test", { body: {} });
+    toast(test.sent ? "Notifications are on. A test one is on its way." : `Notifications are on, but the test didn't send: ${test.failed[0] || "no answer"}`);
+  } catch (e) { toast(`Couldn't turn notifications on: ${e.message}`); }
+};
+async function turnOffNotifications() {
+  try {
+    const sub = await mySubscription();
+    if (sub) {
+      await Promise.all(state.computers.filter((c) => c.online).map((c) => api("/api/push/unsubscribe", { body: { endpoint: sub.endpoint } }, c).catch(() => {})));
+      await sub.unsubscribe();
+    }
+  } catch {}
+  write("push", false);
+  renderNotify();
+  toast("Notifications are off.");
+}
+renderNotify();
+
+// While you're looking at the app, the computers hold their notifications back.
+function tellLooking(looking, comps = state.computers.filter((c) => c.online)) {
+  const body = JSON.stringify({ looking });
+  for (const comp of comps) {
+    const url = `${comp.base}/api/presence`;
+    // Leaving the app: sendBeacon still gets out while the iPhone is pausing the page.
+    if (!looking && navigator.sendBeacon?.(url, new Blob([body], { type: "text/plain" }))) continue;
+    fetch(url, { method: "POST", body, headers: { "content-type": "text/plain" }, keepalive: true }).catch(() => {});
+  }
+}
+setInterval(() => { if (document.visibilityState === "visible") tellLooking(true); }, 20000);
 
 // ── keep the typing bar above the iPhone keyboard ──────────────────────────
 

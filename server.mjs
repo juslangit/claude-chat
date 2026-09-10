@@ -19,6 +19,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { notesFromScreen, noteKey } from "./notes.mjs";
+import * as push from "./push.mjs";
 
 const run = promisify(execFile);
 const ROOT = path.dirname(fileURLToPath(import.meta.url)); // decoded, so folder names with spaces work ("TODAK ACADEMY")
@@ -36,6 +37,10 @@ const CHATS_FILE = path.join(DATA, "chats.json");
 const SECRET_FILE = path.join(DATA, "secret");
 const HOOKS_FILE = path.join(DATA, "hooks.json");
 const TERM_DIR = path.join(DATA, "terminal");
+const PHOTO_DIR = path.join(DATA, "photos");  // photos sent from the phone, one folder per chat
+const PUSH_FILE = path.join(DATA, "push.json"); // the phone's push addresses
+// The notification signing key is kept with your other keys, which Syncthing shares (push.mjs).
+const ENV_FILE = process.env.CLAUDE_CHAT_ENV_FILE || path.join(HOME, ".claude/.env");
 // The permission hook is allowed 30 minutes; give up a little before Claude Code does.
 const APPROVAL_WAIT_MS = 29 * 60 * 1000;
 
@@ -130,7 +135,11 @@ function summary(c) {
 
 const clients = new Set();
 const broadcast = (event) => { const line = `data: ${JSON.stringify(event)}\n\n`; for (const res of clients) res.write(line); };
-const chatChanged = (id) => chats[id] && broadcast({ type: "chat", chat: summary(chats[id]) });
+function chatChanged(id) {
+  if (!chats[id]) return;
+  broadcast({ type: "chat", chat: summary(chats[id]) });
+  watchTurn(id);
+}
 // A ping every 20 seconds the phone can see, so it can tell a connection that died without saying so.
 setInterval(() => { for (const res of clients) res.write("event: ping\ndata: {}\n\n"); }, 20000);
 
@@ -556,6 +565,7 @@ function askPhone(c, ev, res) {
     chatChanged(c.id);
   });
   chatChanged(c.id);
+  notify(c.id, p.questions ? `Asks: ${p.detail}` : `Needs your OK: ${p.detail}`);
 }
 
 // answer: { behavior: "allow" | "deny", updatedInput?, message? } for hook.mjs, or null for no
@@ -599,6 +609,61 @@ function handleHook(chatId, ev, res) {
   json(res, {});
 }
 
+// ── notifications on the iPhone (push.mjs does the sending) ─────────────────────────────────
+
+// The phone gives every computer its push address when you turn notifications on (⋯ → Notifications).
+let subscriptions = [];
+try { subscriptions = JSON.parse(fs.readFileSync(PUSH_FILE, "utf8")); } catch {}
+function saveSubscriptions() {
+  fs.writeFileSync(`${PUSH_FILE}.tmp`, JSON.stringify(subscriptions, null, 2));
+  fs.renameSync(`${PUSH_FILE}.tmp`, PUSH_FILE);
+}
+// While you're looking at the app (it says so every 20 seconds) there's no need to buzz.
+let lookingUntil = 0;
+// Apple wants a contact address with every notification; this project's page does.
+const PUSH_SUBJECT = "https://github.com/juslangit/claude-chat";
+
+// Returns what each push address answered (201 = on its way).
+async function notify(id, text, { force = false } = {}) {
+  try {
+    if (!subscriptions.length || (!force && Date.now() < lookingUntil)) return [];
+    const keys = push.vapidKeys(ENV_FILE);
+    if (!keys) { console.error(`push: no signing key in ${ENV_FILE} yet`); return []; }
+    const c = chats[id];
+    const payload = { title: c?.name || "Claude Chats", body: text.slice(0, 180), chat: c ? id : null, url: SELF_URL, tag: c ? `${COMPUTER}/${id}` : "claude-chat" };
+    const results = await Promise.all(subscriptions.map((s) => push.send(s, payload, keys, PUSH_SUBJECT)));
+    for (const r of results) if (r.status < 200 || r.status > 299) console.error(`push: ${r.status} ${r.text}`);
+    // 404 or 410: the phone turned notifications off, or its address expired. Forget it.
+    const gone = new Set(results.flatMap((r, i) => (r.status === 404 || r.status === 410 ? [subscriptions[i].endpoint] : [])));
+    if (gone.size) { subscriptions = subscriptions.filter((s) => !gone.has(s.endpoint)); saveSubscriptions(); }
+    return results;
+  } catch (e) {
+    console.error("push:", e.message);
+    return [];
+  }
+}
+
+// Claude's reply without its Markdown, for a notification's two or three lines.
+const plainText = (s) => String(s || "").replace(/```[\s\S]*?```/g, " [code] ").replace(/[*`#>_|]+/g, "").replace(/\s+/g, " ").trim();
+
+// A turn runs from Claude starting work until it's back at its prompt. When one ends, notify — a
+// moment later, so Claude's last words have been read from the transcript first.
+function watchTurn(id) {
+  const r = rt(id);
+  if (!r.alive) return void (r.turn = null);
+  if (r.status === "working" || r.status === "approval") r.turn ||= { count: r.count };
+  else if (r.status === "idle" && r.turn) {
+    const turn = r.turn;
+    r.turn = null;
+    setTimeout(() => {
+      if (!chats[id]) return;
+      readTranscript(id);
+      const said = r.count > turn.count && !r.lastText.startsWith("You: ") ? plainText(r.lastText) : "";
+      notify(id, said || "Claude has finished.");
+    }, 1500);
+  }
+}
+
 // ── HTTP ───────────────────────────────────────────────────────────────────────────────────
 
 function json(res, data, status = 200) {
@@ -606,9 +671,9 @@ function json(res, data, status = 200) {
   res.end(JSON.stringify(data));
 }
 
-async function body(req) {
+async function body(req, max = 2e6) {
   let raw = "";
-  for await (const chunk of req) { raw += chunk; if (raw.length > 2e6) throw fail("Too large", 413); }
+  for await (const chunk of req) { raw += chunk; if (raw.length > max) throw fail("Too large", 413); }
   try { return raw ? JSON.parse(raw) : {}; } catch { throw fail("Bad JSON"); }
 }
 
@@ -621,6 +686,42 @@ async function api(req, res, url) {
   if (url.pathname === "/api/computers") return json(res, await otherComputers());
   if (url.pathname === "/api/sync/code" && req.method === "POST") return json(res, await newPairCode(req));
   if (url.pathname === "/api/sync/pair" && req.method === "POST") return json(res, await pairSync(await body(req)));
+
+  // Notifications: the phone says when it's being looked at, asks for the signing key's public half,
+  // hands over (or takes back) its push address, and can ask for a test one.
+  if (url.pathname === "/api/presence" && req.method === "POST") {
+    lookingUntil = (await body(req)).looking ? Date.now() + 45000 : 0;
+    return json(res, { ok: true });
+  }
+  if (url.pathname === "/api/push/key") return json(res, { key: push.makeVapidKeys(ENV_FILE).publicKey });
+  if (url.pathname === "/api/push/subscribe" && req.method === "POST") {
+    const s = await body(req);
+    if (!push.validSubscription(s)) throw fail("That isn't a push address.");
+    subscriptions = [...subscriptions.filter((x) => x.endpoint !== s.endpoint), { endpoint: s.endpoint, keys: { p256dh: s.keys.p256dh, auth: s.keys.auth }, at: Date.now() }];
+    saveSubscriptions();
+    return json(res, { ok: true, count: subscriptions.length });
+  }
+  if (url.pathname === "/api/push/unsubscribe" && req.method === "POST") {
+    const { endpoint } = await body(req);
+    subscriptions = subscriptions.filter((x) => x.endpoint !== endpoint);
+    saveSubscriptions();
+    return json(res, { ok: true });
+  }
+  if (url.pathname === "/api/push/test" && req.method === "POST") {
+    const results = await notify(null, "Notifications are on. You'll get one like this when Claude finishes or needs you.", { force: true });
+    const ok = (r) => r.status >= 200 && r.status < 300;
+    return json(res, { sent: results.filter(ok).length, failed: results.filter((r) => !ok(r)).map((r) => `${r.status} ${r.text}`) });
+  }
+
+  // A photo you sent, for the phone to show in the chat.
+  const photo = url.pathname.match(/^\/api\/chats\/([\w-]+)\/photos\/(\d+\.jpg)$/);
+  if (photo && req.method === "GET") {
+    const file = path.join(PHOTO_DIR, photo[1], photo[2]);
+    if (!chats[photo[1]] || !fs.existsSync(file)) throw fail("Not found", 404);
+    res.writeHead(200, { "content-type": "image/jpeg", "cache-control": "private, max-age=31536000, immutable" });
+    return fs.createReadStream(file).pipe(res);
+  }
+
   const m = url.pathname.match(/^\/api\/chats(?:\/([\w-]+))?(?:\/(\w+))?$/);
   if (!m) throw fail("Not found", 404);
   const [, id, action] = m;
@@ -649,6 +750,22 @@ async function api(req, res, url) {
       if (!r.alive) throw fail("This chat's Claude has stopped. Tap Resume first.", 409);
       if (r.pending) throw fail(r.pending.questions ? "Claude asked you a question first. Answer it above." : "Claude is waiting for your approval first.", 409);
       await queue(r, () => sendText(c, text));
+      return json(res, { ok: true });
+    }
+    case "POST photo": {
+      // A photo from the phone (already shrunk to a JPEG there): saved in data/photos, and Claude is
+      // told where it is so it can open it and look.
+      const b = await body(req, 15e6);
+      if (!r.alive) throw fail("This chat's Claude has stopped. Tap Resume first.", 409);
+      if (r.pending) throw fail(r.pending.questions ? "Claude asked you a question first. Answer it above." : "Claude is waiting for your approval first.", 409);
+      const img = Buffer.from(String(b.data || ""), "base64");
+      if (img.length < 100 || img[0] !== 0xff || img[1] !== 0xd8) throw fail("That photo didn't arrive whole. Try again.");
+      const dir = path.join(PHOTO_DIR, id);
+      fs.mkdirSync(dir, { recursive: true });
+      const file = path.join(dir, `${Date.now()}.jpg`);
+      fs.writeFileSync(file, img);
+      const caption = String(b.caption || "").trim().slice(0, 4000);
+      await queue(r, () => sendText(c, `[📷 photo from my phone: ${file} — open it to see it]${caption ? `\n\n${caption}` : ""}`));
       return json(res, { ok: true });
     }
     case "POST key": {
@@ -704,6 +821,7 @@ async function api(req, res, url) {
       delete chats[id];
       delete runtime[id];
       fs.rmSync(path.join(TERM_DIR, `${c.tmux}.command`), { force: true });
+      fs.rmSync(path.join(PHOTO_DIR, id), { recursive: true, force: true });
       save();
       broadcast({ type: "removed", id });
       return json(res, { ok: true });
