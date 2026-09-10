@@ -402,9 +402,18 @@ async function inputBox(c) {
   return box.trimStart().startsWith("❯") ? box : null; // anything else is a menu or dialog, not the input box
 }
 
+// Scrolling back with the mouse in a chat's Terminal window puts tmux into its scroll ("copy")
+// mode, and then every key goes to scrolling instead of Claude. Leave it before typing anything.
+async function leaveScrollMode(c) {
+  try {
+    if ((await tmux("display-message", "-p", "-t", c.tmux, "#{pane_in_mode}")).trim() === "1") await tmux("send-keys", "-t", c.tmux, "-X", "cancel");
+  } catch {}
+}
+
 // Type a message into claude and press Enter — checking each step, because a paste sent
 // while claude is still starting up is silently dropped.
 async function sendText(c, text) {
+  await leaveScrollMode(c);
   const norm = (s) => s.replace(/[^a-zA-Z0-9]/g, "");
   const key = norm(text).slice(0, 16);
   const shows = (box) => box != null && (box.includes("[Pasted text") || (key ? norm(box).includes(key) : norm(box).length > 0));
@@ -551,6 +560,7 @@ async function api(req, res, url) {
       const k = KEYS[(await body(req)).key];
       if (!k) throw fail("Unknown key.");
       if (!r.alive) throw fail("This chat's Claude has stopped.", 409);
+      await leaveScrollMode(c);
       await tmux("send-keys", "-t", c.tmux, k);
       return json(res, { ok: true });
     }
