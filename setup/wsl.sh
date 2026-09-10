@@ -3,9 +3,9 @@
 #
 #   wsl.sh install <projects folder> <setup folder> <PC name>
 #       tools, Claude Code, your projects, claude-chat, Syncthing; writes this PC's Syncthing ID
-#       to <setup folder>/sync-id.txt for windows.ps1
+#       to <setup folder>/sync-id.txt for windows.ps1 (or "PAIRED" if that's already done)
 #   wsl.sh pair <main Mac's Syncthing ID>
-#       shares the Claude notes folder with the main Mac
+#       shares ~/.claude (only the parts in its .stignore — D-014) with the main Mac
 set -euo pipefail
 step() { printf '\n\033[1;32m==>\033[0m \033[1m%s\033[0m\n' "$*"; }
 say()  { printf '    %s\n' "$*"; }
@@ -18,9 +18,28 @@ start_syncthing() {
 if [ "${1:-}" = pair ]; then
   HOME_ID="$2"
   start_syncthing
+  # Put aside anything this PC already had, so the main Mac's copies arrive cleanly instead of clashing.
+  for f in CLAUDE.md settings.json .env; do [ -e "$HOME/.claude/$f" ] && mv "$HOME/.claude/$f" "$HOME/.claude/$f.before-sync"; done
+  cat > "$HOME/.claude/.stignore" <<'EOF'
+// Shared between your computers by Syncthing (claude-chat D-014): only these parts of ~/.claude.
+(?d).DS_Store
+!/CLAUDE.md
+!/settings.json
+!/.env
+!/.freesound-token.json
+!/knowledge
+!/knowledge/**
+!/skybrain
+!/skybrain/**
+*
+EOF
   syncthing cli config devices list | grep -q "$HOME_ID" || syncthing cli config devices add --device-id "$HOME_ID" --name "Main Mac"
-  syncthing cli config folders claude-knowledge devices list | grep -q "$HOME_ID" || \
-    syncthing cli config folders claude-knowledge devices add --device-id "$HOME_ID"
+  syncthing cli config folders list | grep -q claude-home || \
+    syncthing cli config folders add --id claude-home --label "Claude setup" --path "$HOME/.claude"
+  syncthing cli config folders claude-home devices list | grep -q "$HOME_ID" || \
+    syncthing cli config folders claude-home devices add --device-id "$HOME_ID"
+  mkdir -p "$HOME/.local/bin"
+  ln -sf "$HOME/.claude/skybrain/bin/mem" "$HOME/.local/bin/mem" # the Sky AI Brain memory tool
   exit 0
 fi
 
@@ -28,7 +47,7 @@ PROJECTS="$2"; WORK="$3"; PC_NAME="${4:-Windows PC}"
 
 step "Linux tools (asks for your Linux password)"
 sudo apt-get update -qq
-sudo apt-get install -y -qq tmux git curl jq ca-certificates gnupg >/dev/null
+sudo apt-get install -y -qq tmux git curl jq python3 ca-certificates gnupg >/dev/null
 if ! node -v 2>/dev/null | grep -qE '^v(2[2-9]|[3-9][0-9])'; then
   curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - >/dev/null
   sudo apt-get install -y -qq nodejs >/dev/null
@@ -49,14 +68,12 @@ fi
 
 step "Claude Code"
 [ -x "$HOME/.local/bin/claude" ] || curl -fsSL https://claude.ai/install.sh | bash
-node -e '
-  const fs = require("fs"), f = require("os").homedir() + "/.claude/settings.json";
-  let s = {}; try { s = JSON.parse(fs.readFileSync(f, "utf8")); } catch {}
-  s.skipDangerousModePermissionPrompt = true;
-  fs.mkdirSync(require("path").dirname(f), { recursive: true });
-  fs.writeFileSync(f, JSON.stringify(s, null, 2));'
+# Your settings (including the bypass-permissions ones, D-006) arrive from the main Mac by Syncthing.
 # Files written from Linux keep Linux line endings, so git doesn't see every file as changed.
 git config --global core.autocrlf input
+# Your instructions say projects live in ~/Desktop/project; point that at the Windows folder.
+mkdir -p "$HOME/Desktop"
+[ -e "$HOME/Desktop/project" ] || ln -s "$PROJECTS" "$HOME/Desktop/project"
 
 step "GitHub (opens your browser to sign in, once)"
 gh auth status >/dev/null 2>&1 || gh auth login --web --git-protocol https
@@ -88,10 +105,13 @@ ln -sf "$PROJECTS/claude-chat/bin/cchat" "$HOME/.local/bin/cchat"
 grep -q CLAUDE_CHAT_WORKDIR "$HOME/.bashrc" 2>/dev/null || echo "export CLAUDE_CHAT_WORKDIR=\"$PROJECTS\"" >> "$HOME/.bashrc"
 say "Starts with Windows; 'cchat' works in the Ubuntu window."
 
-step "Syncthing (keeps your Claude notes the same on every computer)"
-mkdir -p "$HOME/.claude/knowledge"
+step "Syncthing (brings your Claude setup from the main Mac)"
+mkdir -p "$HOME/.claude"
 start_syncthing
-syncthing cli config folders list | grep -q claude-knowledge || \
-  syncthing cli config folders add --id claude-knowledge --label "Claude notes" --path "$HOME/.claude/knowledge"
-sync_id > "$WORK/sync-id.txt"
-say "This PC's Syncthing ID: $(cat "$WORK/sync-id.txt")"
+if syncthing cli config folders list | grep -q claude-home; then
+  echo PAIRED > "$WORK/sync-id.txt"
+  say "Already paired with the main Mac."
+else
+  sync_id > "$WORK/sync-id.txt"
+  say "This PC's Syncthing ID: $(cat "$WORK/sync-id.txt")"
+fi
