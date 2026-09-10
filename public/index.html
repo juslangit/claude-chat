@@ -5,9 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Claude Chats">
-<meta name="theme-color" content="#008069">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
 <link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" href="/icon.png">
 <link rel="stylesheet" href="/style.css">
@@ -15,79 +16,122 @@
 </head>
 <body>
 
-<!-- ── chat list ─────────────────────────────────────── -->
+<!-- ── chat list (WhatsApp's "Chats" tab) ────────────── -->
 <section id="list-view" class="view">
-  <header class="bar">
-    <h1>Claude Chats</h1>
-    <span id="conn" class="conn" title="Connecting to the Mac…"></span>
+  <header id="list-nav" class="nav list-nav">
+    <button id="list-more" class="circle-btn" aria-label="More"><span><svg width="18" height="18" viewBox="0 0 18 18" fill="currentColor"><circle cx="3.5" cy="9" r="1.7"/><circle cx="9" cy="9" r="1.7"/><circle cx="14.5" cy="9" r="1.7"/></svg></span></button>
+    <div id="nav-title" class="nav-title">Chats</div>
+    <button id="new-chat" class="circle-btn green" aria-label="New chat"><span><svg width="16" height="16" viewBox="0 0 16 16" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M8 2v12M2 8h12"/></svg></span></button>
   </header>
-  <main id="chat-list" class="chat-list"></main>
-  <button id="new-chat" class="fab" aria-label="New chat">+</button>
+  <main id="list-scroll" class="list-scroll">
+    <h1 class="big-title">Chats</h1>
+    <label class="search">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="7" cy="7" r="5"/><path d="m11 11 3.5 3.5"/></svg>
+      <input id="search" type="search" placeholder="Search" autocomplete="off" enterkeyhint="search">
+    </label>
+    <div id="chips" class="chips">
+      <button class="chip" data-filter="all">All</button>
+      <button class="chip" data-filter="unread">Unread</button>
+      <button class="chip" data-filter="working">Working</button>
+      <button class="chip" data-filter="stopped">Stopped</button>
+    </div>
+    <div id="chat-list"></div>
+    <p class="footnote"><svg width="11" height="13" viewBox="0 0 11 13" fill="currentColor" fill-rule="evenodd"><path d="M2 5.5V4a3.5 3.5 0 0 1 7 0v1.5h.5a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1h-8a1 1 0 0 1-1-1V6.5a1 1 0 0 1 1-1zm1.5 0h4V4a2 2 0 0 0-4 0z"/></svg>Your chats run on your Mac and reach this phone only over your private Tailscale network.</p>
+  </main>
 </section>
 
 <!-- ── one chat ──────────────────────────────────────── -->
 <section id="chat-view" class="view" hidden>
-  <header class="bar chat-bar">
-    <button id="back" class="icon-btn back" aria-label="Back to chats">‹</button>
-    <span id="chat-avatar"></span>
-    <div class="title">
-      <div id="chat-name"></div>
-      <div id="chat-status" class="sub"></div>
-    </div>
-    <button id="screen-btn" class="icon-btn" aria-label="See the Mac's Terminal">🖥</button>
-    <button id="menu-btn" class="icon-btn" aria-label="More">⋮</button>
+  <header class="nav chat-nav">
+    <button id="back" class="back" aria-label="Back to chats"><svg width="13" height="21" viewBox="0 0 13 21" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M11 2 2.5 10.5 11 19"/></svg><span id="back-count"></span></button>
+    <button id="chat-head" class="chat-head" aria-label="Chat info">
+      <span id="chat-avatar"></span>
+      <span class="title"><span id="chat-name"></span><span id="chat-status" class="sub"></span></span>
+    </button>
+    <button id="screen-btn" class="icon-btn" aria-label="See the Mac's Terminal"><svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4" width="19" height="13" rx="2"/><path d="M8 21h8M12 17v4M6.5 8.5l2.5 2-2.5 2M11 12.5h3"/></svg></button>
   </header>
 
-  <main id="scroller" class="scroller">
-    <div id="messages" class="messages"></div>
-    <div id="typing" class="msg assistant typing" hidden><i></i><i></i><i></i></div>
-  </main>
+  <!-- the stage carries the wallpaper, so it sits still behind the messages and the approval card -->
+  <div class="stage">
+    <main id="scroller" class="scroller">
+      <div id="messages" class="messages"></div>
+      <div id="typing" class="bubble in typing" hidden><i></i><i></i><i></i></div>
+    </main>
 
-  <div id="approval" class="approval" hidden>
-    <div class="approval-head">⚠️ Claude wants to use <b id="approval-tool"></b></div>
-    <div id="approval-why" class="approval-why"></div>
-    <pre id="approval-detail"></pre>
-    <div class="btns">
-      <button id="deny" class="btn deny">Deny</button>
-      <button id="approve" class="btn approve">Approve</button>
+    <div id="approval" class="approval" hidden>
+      <div class="bubble in tail approval-card">
+        <div class="approval-head">⚠️ Claude wants to use <b id="approval-tool"></b></div>
+        <div id="approval-why" class="approval-why"></div>
+        <pre id="approval-detail"></pre>
+      </div>
+      <div class="approval-btns">
+        <button id="deny">Deny</button>
+        <button id="approve">Approve</button>
+      </div>
     </div>
   </div>
 
   <div id="ended" class="ended" hidden>
     <p>Claude has stopped in this chat.</p>
-    <button id="resume" class="btn approve">Resume on the Mac</button>
+    <button id="resume">Resume on the Mac</button>
   </div>
 
   <footer id="composer" class="composer">
-    <textarea id="input" rows="1" placeholder="Message Claude"></textarea>
-    <button id="stop" class="round stop" aria-label="Stop Claude" hidden>■</button>
-    <button id="send" class="round send" aria-label="Send">➤</button>
+    <div class="field"><textarea id="input" rows="1"></textarea></div>
+    <button id="stop" class="round stop" aria-label="Stop Claude" hidden><svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><rect x="1" y="1" width="12" height="12" rx="2.5"/></svg></button>
+    <button id="send" class="round send" aria-label="Send"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M3.4 20.4 21.5 12 3.4 3.6l-.01 6.53L15.5 12 3.39 13.87z"/></svg></button>
   </footer>
 </section>
 
-<!-- ── sheets ────────────────────────────────────────── -->
+<!-- ── sheets that slide up from the bottom ──────────── -->
 <div id="new-sheet" class="sheet" hidden>
   <form id="new-form" class="card">
-    <h2>New chat</h2>
-    <p class="hint">A Terminal window with Claude Code opens on the Mac, in your project folder.</p>
-    <input id="new-name" placeholder="Name (optional — or it's named after your first message)" autocomplete="off" maxlength="60">
-    <button id="new-go" class="btn approve" type="submit">Start chat</button>
-    <button class="btn plain close" type="button">Cancel</button>
+    <div class="grabber"></div>
+    <div class="sheet-nav"><button type="button" class="link close">Cancel</button><b>New chat</b><span></span></div>
+    <input id="new-name" placeholder="Chat name (optional)" autocomplete="off" maxlength="60">
+    <p class="hint">Leave it blank and the chat is named after your first message. A Terminal window with Claude Code opens on the Mac, in your project folder.</p>
+    <button id="new-go" class="btn green" type="submit">Start chat</button>
   </form>
 </div>
 
-<div id="menu" class="sheet" hidden>
+<div id="list-menu" class="sheet" hidden>
   <div class="card">
-    <button id="open-mac" class="menu-item">🖥  Open this chat on the Mac</button>
-    <button id="rename" class="menu-item">✏️  Rename</button>
-    <button id="end-chat" class="menu-item danger">✕  End chat</button>
+    <div class="grabber"></div>
+    <div class="group">
+      <button id="read-all" class="cell">Read all</button>
+    </div>
     <button class="btn plain close">Cancel</button>
+  </div>
+</div>
+
+<div id="info" class="sheet" hidden>
+  <div class="card info">
+    <div class="grabber"></div>
+    <div class="sheet-nav"><span></span><b>Chat info</b><button class="link right close">Done</button></div>
+    <div class="info-hero">
+      <div id="info-avatar"></div>
+      <h2 id="info-name"></h2>
+      <p id="info-sub"></p>
+    </div>
+    <div class="tiles">
+      <button id="info-screen" class="tile"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4" width="19" height="13" rx="2"/><path d="M8 21h8M12 17v4M6.5 8.5l2.5 2-2.5 2M11 12.5h3"/></svg><span>Screen</span></button>
+      <button id="open-mac" class="tile"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="11" rx="1.5"/><path d="M2 19.5h20"/></svg><span>Open on Mac</span></button>
+      <button id="rename" class="tile"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13 7 4 4"/></svg><span>Rename</span></button>
+    </div>
+    <div class="group">
+      <div class="cell"><span>Started</span><span id="info-started" class="muted"></span></div>
+      <div class="cell"><span>Replies from Claude</span><span id="info-count" class="muted"></span></div>
+    </div>
+    <div class="group">
+      <button id="end-chat" class="cell danger">End chat</button>
+    </div>
   </div>
 </div>
 
 <div id="screen" class="sheet" hidden>
   <div class="card screen">
-    <div class="screen-head"><h2>Mac Terminal</h2><button class="icon-btn close" aria-label="Close">✕</button></div>
+    <div class="grabber"></div>
+    <div class="sheet-nav"><span></span><b>Mac Terminal</b><button class="link right close">Done</button></div>
     <pre id="screen-text"></pre>
     <div class="keys">
       <button data-key="1">1</button><button data-key="2">2</button><button data-key="3">3</button><button data-key="4">4</button><button data-key="esc">Esc</button>
