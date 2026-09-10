@@ -147,6 +147,9 @@ svg { display: block; flex: none; }
 .avatar.big { width: 104px; height: 104px; font-size: 2.6rem; }
 
 .empty { padding: 48px 28px; text-align: center; color: var(--muted); line-height: 1.5; }
+.offline-note { margin: 2px 16px 10px; padding: 10px 14px; border-radius: 12px; background: var(--notice); color: var(--notice-text); font-size: .86rem; line-height: 1.35; }
+.offline-note b { font-weight: 600; }
+.offline-note small { display: block; margin-top: 2px; font-size: .78rem; opacity: .85; }
 .footnote {
   display: flex; justify-content: center; align-items: center; gap: 6px; margin: 0;
   padding: 18px 28px; color: var(--muted); font-size: .74rem; text-align: center; line-height: 1.4;
