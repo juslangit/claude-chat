@@ -57,11 +57,13 @@ const until = async (check, ms, every = 250) => {
   return false;
 };
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
-const transcriptPath = (sessionId) => path.join(HOME, ".claude/projects", WORKDIR.replace(/[^a-zA-Z0-9]/g, "-"), `${sessionId}.jsonl`);
+// Claude Code files each session under the folder it was started in.
+const transcriptPath = (sessionId, cwd = WORKDIR) => path.join(HOME, ".claude/projects", cwd.replace(/[^a-zA-Z0-9]/g, "-"), `${sessionId}.jsonl`);
 
 // ── chats ──────────────────────────────────────────────────────────────────────────────────
 
-// Saved to disk: which chats exist. { id, sessionId, name, autoName, tmux, transcript, createdAt }
+// Saved to disk: which chats exist. { id, sessionId, name, autoName, tmux, cwd, transcript, createdAt }
+// cwd is the folder claude runs in; chats from before it existed have none and use WORKDIR.
 let chats = {};
 try { chats = JSON.parse(fs.readFileSync(CHATS_FILE, "utf8")); } catch {}
 let saveTimer;
@@ -75,6 +77,7 @@ function summary(c) {
   const r = rt(c.id);
   return {
     id: c.id, name: c.name, createdAt: c.createdAt, alive: r.alive,
+    project: c.cwd && c.cwd !== WORKDIR ? path.basename(c.cwd) : null,
     status: r.alive ? r.status : "ended",
     lastText: r.lastText, lastAt: r.lastAt || c.createdAt, count: r.count,
     pending: r.pending && { reqId: r.pending.reqId, tool: r.pending.tool, detail: r.pending.detail, why: r.pending.why },
@@ -198,7 +201,7 @@ setInterval(refreshAlive, 3000);
 async function startClaude(c, { resume = false } = {}) {
   const args = [CLAUDE, resume ? "--resume" : "--session-id", c.sessionId, "-n", c.name,
     "--permission-mode", "bypassPermissions", "--settings", HOOKS_FILE];
-  await tmux("new-session", "-d", "-s", c.tmux, "-c", WORKDIR, "-x", "140", "-y", "45",
+  await tmux("new-session", "-d", "-s", c.tmux, "-c", c.cwd || WORKDIR, "-x", "140", "-y", "45",
     "-e", `CLAUDE_CHAT_ID=${c.id}`, "-e", `CLAUDE_CHAT_PORT=${PORT}`, args.map(shq).join(" "));
   const r = rt(c.id);
   r.alive = true;
@@ -213,13 +216,38 @@ async function openTerminal(c) {
   await run("/usr/bin/open", ["-a", "Terminal", file]);
 }
 
-async function createChat(name, { terminal = true } = {}) {
+// The folders in the project folder, most recently changed first. The phone's "New chat" lists
+// them the way WhatsApp lists contacts.
+function listProjects() {
+  const changed = (p) => { try { return fs.statSync(p).mtimeMs; } catch { return 0; } };
+  return fs.readdirSync(WORKDIR, { withFileTypes: true })
+    .filter((d) => d.isDirectory() && !d.name.startsWith("."))
+    .map((d) => {
+      const dir = path.join(WORKDIR, d.name);
+      let latest = changed(dir);
+      for (const f of fs.readdirSync(dir)) latest = Math.max(latest, changed(path.join(dir, f)));
+      return { name: d.name, changedAt: latest };
+    })
+    .sort((a, b) => b.changedAt - a.changedAt);
+}
+
+// A project name from the phone → its folder. Only folders directly inside WORKDIR are allowed.
+function projectDir(name) {
+  if (!name) return WORKDIR;
+  const dir = path.join(WORKDIR, String(name));
+  if (path.dirname(dir) !== WORKDIR || !fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) throw fail("That project folder doesn't exist.");
+  return dir;
+}
+
+async function createChat(name, { terminal = true, project } = {}) {
   const id = crypto.randomUUID();
   const now = new Date();
+  const cwd = projectDir(project);
   const c = {
-    id, sessionId: id, tmux: `cc-${id.slice(0, 8)}`, createdAt: now.getTime(), transcript: transcriptPath(id),
-    name: name?.trim().slice(0, 60) || `Chat ${now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`,
-    autoName: !name?.trim(),
+    id, sessionId: id, tmux: `cc-${id.slice(0, 8)}`, createdAt: now.getTime(), cwd, transcript: transcriptPath(id, cwd),
+    // A project chat is named after the project, like a WhatsApp chat is named after the contact.
+    name: name?.trim().slice(0, 60) || (project ? path.basename(cwd) : `Chat ${now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`),
+    autoName: !name?.trim() && !project,
   };
   chats[id] = c;
   save();
@@ -347,6 +375,7 @@ const KEYS = { up: "Up", down: "Down", left: "Left", right: "Right", enter: "Ent
   ...Object.fromEntries("123456789".split("").map((d) => [d, d])) };
 
 async function api(req, res, url) {
+  if (url.pathname === "/api/projects" && req.method === "GET") return json(res, listProjects());
   const m = url.pathname.match(/^\/api\/chats(?:\/([\w-]+))?(?:\/(\w+))?$/);
   if (!m) throw fail("Not found", 404);
   const [, id, action] = m;
@@ -356,7 +385,7 @@ async function api(req, res, url) {
     if (req.method === "GET") return json(res, Object.values(chats).map(summary));
     if (req.method === "POST") {
       const b = await body(req);
-      const c = await createChat(b.name, { terminal: b.terminal !== false });
+      const c = await createChat(b.name, { terminal: b.terminal !== false, project: b.project });
       return json(res, { ...summary(c), tmux: c.tmux });
     }
     throw fail("Not found", 404);

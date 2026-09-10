@@ -13,6 +13,7 @@ const state = {
   drafts: read("drafts", {}),    // id → half-typed message
   filter: read("filter", "all"), // which chip is picked above the chat list
   search: "",
+  projects: null,                // project folders for New chat, once loaded
 };
 // What the top of a chat says under its name. "online" means Claude is running and waiting for you.
 const STATUS = { starting: "starting…", working: "typing…", approval: "needs your approval", idle: "online" };
@@ -466,24 +467,53 @@ for (const s of document.querySelectorAll(".sheet")) {
   s.addEventListener("click", (e) => { if (e.target === s || e.target.closest(".close")) closeSheets(); });
 }
 
-$("#new-chat").onclick = () => {
+// New chat lists your projects like WhatsApp lists contacts. Tap one and Claude starts in that folder.
+$("#new-chat").onclick = async () => {
   openSheet("#new-sheet");
-  $("#new-name").value = "";
-  $("#new-name").focus();
+  $("#new-search").value = "";
+  renderProjects();
+  try { state.projects = await api("/api/projects"); renderProjects(); } catch (e) { toast(e.message); }
 };
-$("#new-form").onsubmit = async (e) => {
-  e.preventDefault();
-  $("#new-go").disabled = true;
+$("#new-search").addEventListener("input", renderProjects);
+
+function renderProjects() {
+  const box = $("#project-list");
+  if (!state.projects) return (box.innerHTML = `<div class="cell muted">Loading…</div>`);
+  const q = $("#new-search").value.trim().toLowerCase();
+  const list = state.projects.filter((p) => p.name.toLowerCase().includes(q));
+  box.innerHTML = list.length ? list.map(projectRow).join("") : `<div class="cell muted">No projects match</div>`;
+}
+function projectRow(p) {
+  const open = [...state.chats.values()].filter((c) => c.project === p.name && c.status !== "ended").length;
+  const note = `${open ? `${open} open chat${open > 1 ? "s" : ""} · ` : ""}changed ${ago(p.changedAt)}`;
+  return `<button class="cell pick" data-project="${esc(p.name)}">${avatar({ id: p.name, name: p.name }, "small")}
+    <span class="pick-text"><b>${esc(p.name)}</b><small>${note}</small></span></button>`;
+}
+// "today", "yesterday", "3 days ago", "12 Aug" — counted in calendar days.
+function ago(ts) {
+  const days = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(ts).setHours(0, 0, 0, 0)) / 864e5);
+  if (days < 1) return "today";
+  if (days === 1) return "yesterday";
+  return days < 7 ? `${days} days ago` : new Date(ts).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+}
+
+let starting = false;
+$("#new-sheet").addEventListener("click", async (e) => {
+  const pick = e.target.closest(".pick");
+  if (!pick || starting) return;
+  starting = true;
+  pick.classList.add("busy");
   try {
-    const c = await api("/api/chats", { body: { name: $("#new-name").value } });
+    const c = await api("/api/chats", { body: { project: pick.dataset.project || undefined } });
     state.chats.set(c.id, c);
     location.hash = `chat/${c.id}`;
   } catch (err) {
     toast(err.message);
   } finally {
-    $("#new-go").disabled = false;
+    starting = false;
+    pick.classList.remove("busy");
   }
-};
+});
 
 $("#list-more").onclick = () => openSheet("#list-menu");
 $("#read-all").onclick = () => {
@@ -500,6 +530,7 @@ function fillInfo(c) {
   $("#info-avatar").innerHTML = avatar(c, "big");
   $("#info-name").textContent = c.name;
   $("#info-sub").textContent = `Claude Code on your Mac · ${c.status === "ended" ? "stopped" : "running"}`;
+  $("#info-folder").textContent = c.project || "Whole project folder";
   $("#info-started").textContent = new Date(c.createdAt).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
   $("#info-count").textContent = c.count;
   $("#open-mac").disabled = c.status === "ended";

@@ -282,14 +282,20 @@ svg { display: block; flex: none; }
 .sheet-nav b { font-size: 1rem; font-weight: 600; }
 .link { justify-self: start; padding: 6px 0; color: var(--green-text); font-size: 1rem; }
 .link.right { justify-self: end; font-weight: 600; }
-.card input {
-  font: inherit; font-size: 17px; padding: 13px 14px; border: 0; border-radius: 10px; outline: 0;
-  background: var(--cell); color: var(--text);
-}
-.hint { margin: -6px 4px 0; color: var(--muted); font-size: .8rem; line-height: 1.4; }
+.card.tall { height: 94dvh; }
+.card .search { flex: none; margin: 0; }
 .btn { flex: none; height: 50px; border-radius: 12px; font-size: 1rem; font-weight: 600; }
-.btn.green { background: var(--green-strong); color: #fff; }
 .btn.plain { background: var(--cell); color: var(--green-text); }
+
+/* New chat: one row per project, like WhatsApp's contact list. */
+.section-title { margin: 4px 16px -8px; color: var(--muted); font-size: .8rem; }
+.cell.pick { justify-content: flex-start; padding: 9px 16px; }
+.pick:active { background: var(--fill); }
+.pick.busy { opacity: .5; }
+.pick-text { flex: 1; display: flex; flex-direction: column; align-items: flex-start; min-width: 0; text-align: left; }
+.pick-text b { font-weight: 600; }
+.pick-text small { color: var(--muted); font-size: .8rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.avatar.folder { background: var(--green-strong); }
 
 .group { flex: none; background: var(--cell); border-radius: 12px; overflow: hidden; }
 .cell {
