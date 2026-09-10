@@ -315,6 +315,13 @@ svg { display: block; flex: none; }
 .computer .state { color: var(--muted); font-size: .85rem; }
 .computer .state.on { color: var(--green-text); }
 .sheet-note { margin: -4px 4px 0; color: var(--muted); font-size: .8rem; line-height: 1.4; }
+.add-box { flex: none; display: flex; flex-direction: column; gap: 7px; padding: 12px 14px; border-radius: 12px; background: var(--cell); font-size: .88rem; line-height: 1.4; }
+.add-box p { margin: 0; }
+.add-box .line {
+  display: block; padding: 8px 10px; border-radius: 8px; background: var(--code); overflow-wrap: anywhere;
+  font: .74rem/1.4 ui-monospace, Menlo, monospace; -webkit-user-select: all; user-select: all;
+}
+.add-box .code { padding: 2px 0; text-align: center; color: var(--green-text); font: 600 2rem/1.1 ui-monospace, Menlo, monospace; letter-spacing: .08em; }
 
 .group { flex: none; background: var(--cell); border-radius: 12px; overflow: hidden; }
 .cell {
