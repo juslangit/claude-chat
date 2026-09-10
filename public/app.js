@@ -133,7 +133,8 @@ function onEvent(ev, comp = home) {
     list.push(...fresh);
     if (key === state.current) appendMessages(fresh);
     if (call.on && key === call.chatId) {
-      for (const m of fresh) if (m.role === "assistant" && m.at >= call.since - 5000) { call.awaiting = false; sayOnce(m.text); }
+      // A question is read out from the question card instead (sayQuestion), one at a time.
+      for (const m of fresh) if (m.role === "assistant" && !m.ask && m.at >= call.since - 5000) { call.awaiting = false; sayOnce(m.text); }
     }
   } else if (ev.type === "reset") {
     const key = keyOf(comp, ev.chatId);
@@ -251,7 +252,7 @@ function rowHtml(c) {
   let badge = unread ? `<span class="badge">${unread}</span>` : "";
   let preview;
   if (c.pending) {
-    preview = `<span class="warn-text">Wants to run: ${esc(c.pending.detail)}</span>`;
+    preview = `<span class="warn-text">${c.pending.questions ? "Asks" : "Wants to run"}: ${esc(c.pending.detail)}</span>`;
     badge = `<span class="badge warn">!</span>`;
   } else if (isWorking(c)) {
     preview = `<span class="typing-text">${STATUS[c.status]}</span>`;
@@ -333,6 +334,7 @@ function lastSeen(ts) {
 
 function subtitle(c) {
   if (!state.online) return "connecting…";
+  if (c.pending?.questions) return "asked you a question";
   if (c.status !== "idle" && c.status !== "ended") return STATUS[c.status] || "";
   if (Date.now() < state.hintUntil) return "tap here for chat info";
   return c.status === "idle" ? "online" : `last seen ${lastSeen(c.lastAt)}`;
@@ -355,8 +357,9 @@ function renderChatChrome() {
   if (c.status === "working" || c.status === "approval") markAllRead();
 
   const card = $("#approval");
-  card.hidden = !c.pending;
-  if (c.pending) {
+  card.hidden = !c.pending || !!c.pending.questions;
+  renderQuestion(c);
+  if (!card.hidden) {
     $("#approval-tool").textContent = c.pending.tool;
     $("#approval-why").textContent = c.pending.why;
     $("#approval-why").hidden = !c.pending.why;
@@ -571,6 +574,72 @@ async function answer(decision) {
 $("#approve").onclick = () => answer("allow");
 $("#deny").onclick = () => answer("deny");
 
+// ── Claude's multiple-choice questions ─────────────────────────────────────
+// Claude sometimes asks a question with a few answers to pick from. Each choice is a reply
+// button; typing or saying something instead answers in your own words. Several questions come
+// one at a time, and all the answers go back to Claude together after the last one.
+
+let ask = null; // the question on screen: { reqId, i: which one, answers: { question → answer }, picked: labels ticked so far, busy }
+const CHECK = `<svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5l2.6 2.6L11 4.5"/></svg>`;
+
+function renderQuestion(c) {
+  const box = $("#question"), qs = c?.pending?.questions;
+  box.hidden = !qs;
+  input.placeholder = qs ? "Or type your own answer" : "";
+  if (!qs) return (ask = null);
+  if (ask?.reqId !== c.pending.reqId) ask = { reqId: c.pending.reqId, i: 0, answers: {}, picked: new Set(), busy: false };
+  const q = qs[ask.i];
+  const opts = q.options.map((o, n) => `<button data-opt="${n}"${ask.picked.has(o.label) ? ` class="picked"` : ""}>
+      <span class="opt"><b>${esc(o.label)}</b>${o.description && o.description !== o.label ? `<small>${esc(o.description)}</small>` : ""}</span>
+      ${q.multiSelect ? `<span class="box">${CHECK}</span>` : ""}</button>`).join("");
+  box.innerHTML = `<div class="bubble in tail">
+      <div class="ask-top">${q.header ? `<span class="ask-chip">${esc(q.header)}</span>` : ""}
+        ${qs.length > 1 ? `<span class="ask-count">${ask.i + 1} of ${qs.length}</span>` : ""}<span class="grow"></span>
+        ${ask.i ? `<button data-do="back">Back</button>` : ""}<button data-do="skip">Skip</button></div>
+      <div class="ask-q">${esc(q.question)}</div>
+      <div class="ask-hint">${q.multiSelect ? "Tap all that fit, then Send." : "Tap an answer."} Or type your own below.</div>
+    </div>
+    <div class="ask-opts">${opts}${q.multiSelect ? `<button data-do="send" class="ask-send"${ask.picked.size ? "" : " disabled"}>Send</button>` : ""}</div>`;
+  if (ask.busy) for (const b of box.querySelectorAll("button")) b.disabled = true;
+}
+
+$("#question").addEventListener("click", (e) => {
+  const b = e.target.closest("button"), c = cur(), q = c?.pending?.questions?.[ask?.i];
+  if (!b || !q || ask.busy) return;
+  const failed = (err) => toast(err.message);
+  if (b.dataset.opt) {
+    const label = q.options[b.dataset.opt].label;
+    if (!q.multiSelect) return reply(label).catch(failed);
+    if (!ask.picked.delete(label)) ask.picked.add(label);
+    return renderQuestion(c);
+  }
+  if (b.dataset.do === "send") return reply(q.options.map((o) => o.label).filter((l) => ask.picked.has(l)).join(", ")).catch(failed);
+  if (b.dataset.do === "back") { ask.i--; ask.picked = new Set(); return renderQuestion(c); }
+  if (b.dataset.do === "skip") {
+    ask.busy = true;
+    renderQuestion(c);
+    chatApi(c, "/approve", { body: { decision: "deny", reqId: ask.reqId } }).catch((err) => { if (ask) { ask.busy = false; renderQuestion(c); } failed(err); });
+  }
+});
+
+// Answer the question on screen. After the last one, all the answers go to Claude.
+async function reply(text) {
+  const c = cur(), qs = c?.pending?.questions;
+  if (!qs || ask?.reqId !== c.pending.reqId) throw new Error("That question was already answered.");
+  ask.answers[qs[ask.i].question] = text;
+  ask.picked = new Set();
+  if (ask.i + 1 < qs.length) {
+    ask.i++;
+    renderQuestion(c);
+    if (call.on) { call.awaiting = false; clearTimeout(call.waitTimer); sayQuestion(c); } // on a call, ask the next one out loud
+    return;
+  }
+  ask.busy = true;
+  renderQuestion(c);
+  try { await chatApi(c, "/answer", { body: { reqId: ask.reqId, answers: ask.answers } }); }
+  catch (e) { if (ask) { ask.busy = false; renderQuestion(c); } throw e; } // tap again to retry
+}
+
 $("#resume").onclick = () => chatApi(cur(), "/resume", { body: {} }).catch((e) => toast(e.message));
 
 // ── sheets: new chat, list menu, chat info, Mac screen ─────────────────────
@@ -734,6 +803,11 @@ $("#screen .keys").addEventListener("click", async (e) => {
 function sendMessage(text, key = state.current) {
   const c = state.chats.get(key);
   if (!c) return Promise.reject(new Error("That chat isn't available right now."));
+  // While Claude is asking you a question, whatever you type or say is your answer to it.
+  if (c.pending?.questions && key === state.current) {
+    const { text: words, kind } = splitVoice(text);
+    return reply(kind ? `${words} (said out loud, so a word may be misheard)` : words);
+  }
   return chatApi(c, "/send", { body: { text } });
 }
 
@@ -911,8 +985,8 @@ async function startCall() {
 function callChatChanged(old, c) {
   if (!call.on || c.key !== call.chatId) return;
   if (isWorking(c) || c.pending) { call.awaiting = false; clearTimeout(call.waitTimer); }
-  $("#call-approval").hidden = !c.pending;
-  if (c.pending && !old?.pending) say(`Claude needs your OK to use ${c.pending.tool}. Tap Approve or Deny.`);
+  $("#call-approval").hidden = !c.pending || !!c.pending.questions;
+  if (c.pending && !old?.pending) c.pending.questions ? sayQuestion(c) : say(`Claude needs your OK to use ${c.pending.tool}. Tap Approve or Deny.`);
   if (c.status === "ended" && old && old.status !== "ended") say("Claude has stopped in this chat.");
   if (isWorking(c) && !call.speaking) $("#call-said").textContent = c.note || state.lastStep || "";
   nextTurn();
@@ -923,7 +997,7 @@ function nextTurn() {
   if (!call.on || call.speaking || call.listener) return;
   const c = state.chats.get(call.chatId);
   if (!c || c.status === "ended") return setCallMode("idle", "Claude has stopped");
-  if (c.pending) return setCallMode("idle", "Waiting for your OK");
+  if (c.pending && !c.pending.questions) return setCallMode("idle", "Waiting for your OK"); // a question is answered by talking
   if (call.awaiting || isWorking(c)) return setCallMode("working", "Claude is working…");
   if (call.muted) return setCallMode("idle", "You're muted. Tap Mute to talk.");
   setCallMode("listening", "Listening…");
@@ -933,6 +1007,14 @@ function nextTurn() {
     clearTimeout(call.quiet);
     call.quiet = setTimeout(finishTurn, 1600); // a short pause means you've finished talking
   }, micBlocked);
+}
+
+// On a call, Claude's question is read out with its choices; the answer you say goes back as
+// your answer to it (sendMessage → reply).
+function sayQuestion(c) {
+  const q = c.pending.questions[ask?.i || 0], labels = q.options.map((o) => o.label);
+  const choices = labels.length > 1 ? ` ${labels.slice(0, -1).join(", ")}, or ${labels.at(-1)}?` : "";
+  say(`${ask?.i ? "Next" : "Claude asks"}: ${q.question}${choices}${q.multiSelect ? " You can say more than one." : ""}`);
 }
 
 async function finishTurn() {

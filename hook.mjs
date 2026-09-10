@@ -35,9 +35,10 @@ const req = http.request({
     let answer = {};
     try { answer = JSON.parse(data); } catch {}
     if (!answer.behavior) return; // no answer from the phone: the Terminal prompt stays up
+    // Answers to one of Claude's questions come back as updatedInput, carrying what you picked.
     const decision = answer.behavior === "allow"
-      ? { behavior: "allow" }
-      : { behavior: "deny", message: "Luqman denied this from his phone." };
+      ? { behavior: "allow", ...(answer.updatedInput && { updatedInput: answer.updatedInput }) }
+      : { behavior: "deny", message: answer.message || "Luqman denied this from his phone." };
     process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PermissionRequest", decision } }));
   });
 });
