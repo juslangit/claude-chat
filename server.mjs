@@ -17,10 +17,11 @@ import os from "node:os";
 import crypto from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 import { notesFromScreen, noteKey } from "./notes.mjs";
 
 const run = promisify(execFile);
-const ROOT = path.dirname(new URL(import.meta.url).pathname);
+const ROOT = path.dirname(fileURLToPath(import.meta.url)); // decoded, so folder names with spaces work ("TODAK ACADEMY")
 const HOME = os.homedir();
 const PORT = Number(process.env.PORT || 4477);
 const WORKDIR = process.env.CLAUDE_CHAT_WORKDIR || path.join(HOME, "Desktop/project");
@@ -409,7 +410,7 @@ async function sendText(c, text) {
   const shows = (box) => box != null && (box.includes("[Pasted text") || (key ? norm(box).includes(key) : norm(box).length > 0));
 
   if (!(await until(async () => (await inputBox(c)) != null, 15000))) {
-    throw fail("Claude is showing a menu on the Mac. Open the screen view to answer it first.", 409);
+    throw fail(`Claude is showing a menu on ${COMPUTER}. Open the screen view to answer it first.`, 409);
   }
   const tmp = path.join(DATA, `paste-${c.tmux}.txt`);
   for (let attempt = 0; attempt < 4; attempt++) {
@@ -418,11 +419,12 @@ async function sendText(c, text) {
     await tmux("paste-buffer", "-p", "-d", "-b", c.tmux, "-t", c.tmux); // -p: bracketed paste, so new lines don't send early
     fs.rmSync(tmp, { force: true });
     if (!(await until(async () => shows(await inputBox(c)), 3000))) { await sleep(1000); continue; }
-    for (let i = 0; i < 3; i++) {
+    // A computer that's still starting Claude up (a slower PC, say) can miss the first Enter or two.
+    for (let i = 0; i < 5; i++) {
       await tmux("send-keys", "-t", c.tmux, "Enter");
-      if (await until(async () => !shows(await inputBox(c)), 3000)) return;
+      if (await until(async () => !shows(await inputBox(c)), 4000)) return;
     }
-    throw fail("The message is in Claude's input box on the Mac but didn't send. Open the screen view to check.", 409);
+    throw fail(`The message is in Claude's input box on ${COMPUTER} but didn't send. Open the screen view to check.`, 409);
   }
   throw fail("Claude didn't take the message. It may still be starting — try again in a moment.", 409);
 }
