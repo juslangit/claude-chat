@@ -8,7 +8,7 @@ set -euo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"
 LABEL=com.juslangit.claude-chat
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
-NODE=/opt/homebrew/bin/node
+NODE="$(command -v node || echo /opt/homebrew/bin/node)"
 mkdir -p "$DIR/data"
 
 cat > "$PLIST" <<EOF
@@ -39,7 +39,11 @@ mkdir -p "$HOME/.local/bin"
 ln -sf "$DIR/bin/cchat" "$HOME/.local/bin/cchat"
 echo "✓ 'cchat' command installed"
 
-TS=(/opt/homebrew/opt/tailscale/bin/tailscale --socket="$HOME/Library/Application Support/tailscale-user/tailscaled.sock")
+# Tailscale: this main Mac runs it in userspace mode with its own socket (D-004); other Macs use the app.
+SOCK="$HOME/Library/Application Support/tailscale-user/tailscaled.sock"
+if [ -S "$SOCK" ]; then TS=(/opt/homebrew/opt/tailscale/bin/tailscale --socket="$SOCK")
+elif [ -x /Applications/Tailscale.app/Contents/MacOS/Tailscale ]; then TS=(/Applications/Tailscale.app/Contents/MacOS/Tailscale)
+else TS=(tailscale); fi
 if "${TS[@]}" status >/dev/null 2>&1; then
   "${TS[@]}" serve --bg 4477
 else
