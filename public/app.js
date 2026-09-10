@@ -14,10 +14,22 @@ const state = {
   filter: read("filter", "all"), // which chip is picked above the chat list
   search: "",
   projects: null,                // project folders for New chat, once loaded
+  sound: read("sound", true),    // the pop when Claude answers
+  lastStep: null,                // the open chat's latest step, for the "typing…" bubble
 };
 // What the top of a chat says under its name. "online" means Claude is running and waiting for you.
 const STATUS = { starting: "starting…", working: "typing…", approval: "needs your approval", idle: "online" };
-const isWorking = (c) => c.status === "working" || c.status === "starting";
+const isWorking = (c) => c?.status === "working" || c?.status === "starting";
+
+// Messages you speak carry a short tag at the end, so Claude knows they came through speech
+// recognition (and, on a call, to answer briefly). The phone hides the tag and shows a mic instead.
+const VOICE_NOTE = "\n\n[🎤 voice note: typed by speech recognition, so a word may be misheard]";
+const VOICE_CALL = "\n\n[📞 voice call: typed by speech recognition. Reply in one to three short spoken sentences, with no code, tables, lists or links]";
+const VOICE_TAG = /\n\n\[(🎤|📞) voice (note|call)[^\]]*\]$/u;
+function splitVoice(text) {
+  const s = String(text || ""), m = s.match(VOICE_TAG);
+  return m ? { text: s.slice(0, m.index), kind: m[2] } : { text: s, kind: null };
+}
 
 function read(key, fallback) { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } }
 function write(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch {} }
@@ -28,6 +40,8 @@ const ICON = {
   ticks: `<svg class="ticks" width="17" height="11" viewBox="0 0 17 11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1 5.8l3 3L10.6 2.2M7 7.8l1 1 6.6-6.6"/></svg>`,
   steps: `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3l4 4-4 4M8 11h4"/></svg>`,
   chevron: `<svg class="chev" width="8" height="12" viewBox="0 0 8 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 2l4 4-4 4"/></svg>`,
+  mic: `<svg class="voice" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>`,
+  phone: `<svg class="voice" viewBox="0 0 24 24" fill="currentColor"><path d="M5 3.5h3.2l1.6 4-2.1 1.5a11 11 0 0 0 7.3 7.3l1.5-2.1 4 1.6V19a1.8 1.8 0 0 1-1.9 1.8C10.3 20.3 3.7 13.7 3.2 5.4A1.8 1.8 0 0 1 5 3.5z"/></svg>`,
 };
 
 async function api(path, { method, body } = {}) {
@@ -69,15 +83,25 @@ function setOnline(on) {
 }
 // iPhones pause pages in the background; catch up when you come back.
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState !== "visible") return;
+  if (document.visibilityState !== "visible") return pauseCall();
   if (!source || source.readyState === EventSource.CLOSED) connect(); else refresh();
+  resumeCall();
 });
 
 function onEvent(ev) {
   if (ev.type === "chat") {
-    state.chats.set(ev.chat.id, ev.chat);
+    const old = state.chats.get(ev.chat.id), c = ev.chat;
+    state.chats.set(c.id, c);
+    if (old && !(call.on && call.chatId === c.id)) { // on a call you hear the reply instead
+      if (c.count > old.count) pop();
+      else if (c.pending && !old.pending) pop("alert");
+    }
+    if (c.id === state.current && isWorking(c) && !isWorking(old)) state.lastStep = null; // a new turn
     renderList();
-    if (ev.chat.id === state.current) renderChatChrome();
+    if (c.id === state.current) renderChatChrome();
+    callChatChanged(old, c);
+  } else if (ev.type === "note") {
+    if (call.on && ev.chatId === call.chatId) sayOnce(ev.text);
   } else if (ev.type === "removed") {
     state.chats.delete(ev.id);
     state.messages.delete(ev.id);
@@ -90,6 +114,9 @@ function onEvent(ev) {
     const fresh = ev.messages.filter((m) => !known.has(m.id));
     list.push(...fresh);
     if (ev.chatId === state.current) appendMessages(fresh);
+    if (call.on && ev.chatId === call.chatId) {
+      for (const m of fresh) if (m.role === "assistant" && m.at >= call.since - 5000) { call.awaiting = false; sayOnce(m.text); }
+    }
   } else if (ev.type === "reset") {
     state.messages.delete(ev.chatId);
     if (ev.chatId === state.current) loadMessages(ev.chatId);
@@ -164,7 +191,7 @@ function rowHtml(c) {
   } else if (isWorking(c)) {
     preview = `<span class="typing-text">${STATUS[c.status]}</span>`;
   } else {
-    const text = plain(c.lastText);
+    const text = plain(splitVoice(c.lastText).text);
     // Your own last message gets ticks instead of "You:", the way WhatsApp shows it.
     preview = text.startsWith("You: ") ? ICON.ticks + esc(text.slice(5)) : esc(text || "No messages yet");
     if (c.status === "ended") preview = `Stopped · ${preview}`;
@@ -196,6 +223,7 @@ listScroll.addEventListener("scroll", () => $("#list-nav").classList.toggle("scr
 // ── moving between the list and a chat (uses the URL, so the back gesture works) ──
 
 function route() {
+  endCall(); // leaving a chat hangs up
   saveDraft();
   const id = location.hash.match(/^#chat\/([\w-]+)/)?.[1] || null;
   state.current = id;
@@ -251,9 +279,10 @@ function renderChatChrome() {
   $("#stop").hidden = !(c.status === "working" || c.status === "approval");
   $("#ended").hidden = c.status !== "ended";
   $("#composer").hidden = c.status === "ended";
-  const wasTyping = !$("#typing").hidden;
+  const stick = nearBottom();
   $("#typing").hidden = !isWorking(c);
-  if (!wasTyping && isWorking(c) && nearBottom()) scrollDown();
+  if (isWorking(c)) renderDoing(c);
+  if (isWorking(c) && stick) scrollDown();
   // Claude has picked up your message → blue ticks.
   if (c.status === "working" || c.status === "approval") markAllRead();
 
@@ -267,8 +296,16 @@ function renderChatChrome() {
     card.dataset.req = c.pending.reqId;
   }
   renderBackCount();
+  updateQuick();
   if (!$("#info").hidden) fillInfo(c);
   markSeen(c);
+}
+
+// The "typing…" bubble also says what Claude is doing: its latest note, and its latest step.
+function renderDoing(c) {
+  const note = c.note || "", step = state.lastStep || "";
+  $("#doing").innerHTML = (note ? `<div class="doing-note">${esc(note)}</div>` : "") + (step ? `<div class="doing-now">▸ ${esc(step)}</div>` : "");
+  $("#doing").hidden = !note && !step;
 }
 
 function markSeen(c) {
@@ -338,7 +375,12 @@ function addMessage(box, m) {
       group.side = "in";
     }
     const t = group.tools;
-    t.querySelector(".tools-list").append(el("li", m.error ? "error" : "", esc(m.text)));
+    t.querySelector(".tools-list").append(el("li", m.error ? "error" : "", esc(m.text) + (m.detail ? `<span class="raw">${esc(m.detail)}</span>` : "")));
+    if (!m.error) {
+      state.lastStep = m.text;
+      const c = state.chats.get(state.current);
+      if (isWorking(c)) renderDoing(c);
+    }
     const n = t.querySelectorAll("li:not(.error)").length;
     t.querySelector(".n").textContent = n === 1 ? "1 step" : `${n} steps`;
     const last = t.querySelector(".last");
@@ -347,9 +389,11 @@ function addMessage(box, m) {
     return;
   }
   const side = m.role === "user" ? "out" : "in";
-  const body = side === "in" ? md(m.text) : esc(m.text);
+  const spoken = side === "out" ? splitVoice(m.text) : { text: m.text, kind: null };
+  const body = side === "in" ? md(m.text) : esc(spoken.text);
+  const voice = spoken.kind ? ICON[spoken.kind === "call" ? "phone" : "mic"] : ""; // said out loud, not typed
   box.append(el("div", `bubble ${side}${group.side === side ? "" : " tail"}`,
-    `${body}<span class="spacer${side === "out" ? " wide" : ""}"></span><span class="stamp">${clock(m.at)}${side === "out" ? ICON.ticks : ""}</span>`));
+    `${body}<span class="spacer${side === "out" ? " wide" : ""}${voice ? " voiced" : ""}"></span><span class="stamp">${voice}${clock(m.at)}${side === "out" ? ICON.ticks : ""}</span>`));
   group.side = side;
   group.tools = null;
 }
@@ -406,6 +450,7 @@ const scrollDown = () => requestAnimationFrame(() => (scroller.scrollTop = scrol
 const input = $("#input");
 function grow() {
   $("#composer").classList.toggle("has-text", !!input.value.trim()); // the send button appears once you type
+  updateQuick();
   input.style.height = "auto";
   input.style.height = `${Math.min(input.scrollHeight, innerHeight * 0.4)}px`;
 }
@@ -431,7 +476,7 @@ async function send() {
   $("#send").disabled = true;
   $("#send").classList.add("busy");
   try {
-    await api(`/api/chats/${state.current}/send`, { body: { text } });
+    await sendMessage(text);
     input.value = "";
     grow();
     saveDraft();
@@ -574,6 +619,312 @@ $("#screen .keys").addEventListener("click", async (e) => {
   await pressKey(key);
   setTimeout(pollScreen, 300);
 });
+
+// ── sending, quick replies and the reply sound ─────────────────────────────
+
+function sendMessage(text, id = state.current) {
+  return api(`/api/chats/${id}/send`, { body: { text } });
+}
+
+// One-tap replies, shown while Claude is waiting for you and the typing box is empty.
+function updateQuick() {
+  const c = state.chats.get(state.current);
+  $("#quick").hidden = !c || c.status !== "idle" || !c.count || !!input.value.trim() || !!recording;
+}
+$("#quick").addEventListener("click", async (e) => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  $("#quick").hidden = true;
+  try { await sendMessage(b.dataset.say); } catch (err) { toast(err.message); updateQuick(); }
+});
+
+// A soft WhatsApp-style pop when Claude answers (a lower one when it needs your OK), made on the
+// spot with the Web Audio API — no sound file. iPhones only allow sound once you've touched the
+// page, and keep it quiet when the phone is on silent.
+let audio;
+function unlockAudio() {
+  try { audio ||= new (window.AudioContext || window.webkitAudioContext)(); audio.resume(); } catch {}
+}
+addEventListener("pointerdown", unlockAudio);
+function pop(kind = "reply") {
+  if (!state.sound || !audio || document.visibilityState !== "visible") return;
+  const t = audio.currentTime, osc = audio.createOscillator(), gain = audio.createGain();
+  const [from, to] = kind === "alert" ? [660, 440] : [880, 1320];
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(from, t);
+  osc.frequency.exponentialRampToValueAtTime(to, t + 0.09);
+  gain.gain.setValueAtTime(0.0001, t);
+  gain.gain.exponentialRampToValueAtTime(0.25, t + 0.012);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+  osc.connect(gain).connect(audio.destination);
+  osc.start(t);
+  osc.stop(t + 0.22);
+}
+function renderSound() { $("#sound-state").textContent = state.sound ? "On" : "Off"; }
+$("#sound-toggle").onclick = () => { state.sound = !state.sound; write("sound", state.sound); renderSound(); unlockAudio(); pop(); };
+renderSound();
+
+// ── speech: the iPhone's own recognition and voice, the same as Sky ────────
+
+const speechApi = () => window.SpeechRecognition || window.webkitSpeechRecognition;
+
+// Listen until told to stop; `onWords` gets everything heard so far. iPhones end a listen at
+// every pause, so while it's still wanted it quietly starts again and keeps what it already had.
+function listen(onWords, onBlocked) {
+  const rec = new (speechApi())();
+  rec.lang = "en-US";
+  rec.interimResults = true;
+  rec.continuous = true;
+  let kept = "", heard = "", wanted = true, finish;
+  const done = new Promise((resolve) => (finish = resolve));
+  const all = () => `${kept} ${heard}`.replace(/\s+/g, " ").trim();
+  rec.onresult = (e) => { heard = [...e.results].map((r) => r[0].transcript).join(" "); onWords?.(all()); };
+  rec.onerror = (e) => { if (e.error === "not-allowed" || e.error === "service-not-allowed") { wanted = false; onBlocked?.(); } };
+  rec.onend = () => {
+    kept = all();
+    heard = "";
+    if (wanted) { try { rec.start(); return; } catch {} }
+    finish(kept);
+  };
+  try { rec.start(); } catch { wanted = false; finish(""); }
+  const end = (how) => {
+    wanted = false;
+    try { rec[how](); } catch { finish(all()); }
+    setTimeout(() => finish(all()), 2500); // in case the iPhone never says it has stopped
+    return done;
+  };
+  return { stop: () => end("stop"), abort: () => end("abort") };
+}
+
+function micBlocked() {
+  if (recording) endRecording(false, true);
+  endCall();
+  toast("The microphone is blocked. Allow it in Settings → Apps → Safari → Microphone, then try again.");
+}
+
+let voice = null; // the nicest English voice on the phone (the same pick as Sky)
+function pickVoice() {
+  const vs = window.speechSynthesis?.getVoices() || [];
+  voice = vs.find((v) => /en-GB|en-AU/.test(v.lang) && /Siri|Samantha|Daniel|Google/i.test(v.name)) || vs.find((v) => v.lang.startsWith("en")) || null;
+}
+window.speechSynthesis?.addEventListener?.("voiceschanged", pickVoice);
+pickVoice();
+
+// ── voice notes: hold the mic, talk, let go to send; slide left to cancel ──
+
+let recording = null;
+const mmss = (ms) => { const s = Math.floor(ms / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+const mic = $("#mic");
+mic.addEventListener("contextmenu", (e) => e.preventDefault());
+mic.addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  if (recording) return;
+  if (!speechApi()) return toast("Voice needs Safari on your iPhone.");
+  try { mic.setPointerCapture(e.pointerId); } catch {}
+  unlockAudio();
+  recording = { x: e.clientX, started: Date.now() };
+  recording.listener = listen((words) => recording && showPreview(words), micBlocked);
+  recording.timer = setInterval(() => ($("#rec-time").textContent = mmss(Date.now() - recording.started)), 250);
+  $("#rec-time").textContent = "0:00";
+  $("#composer").classList.add("recording");
+  $("#rec-bar").hidden = false;
+  showPreview("");
+  updateQuick();
+});
+mic.addEventListener("pointermove", (e) => {
+  if (!recording) return;
+  const slid = recording.x - e.clientX;
+  $("#composer").classList.toggle("cancelling", slid > 50);
+  if (slid > 110) endRecording(false);
+});
+mic.addEventListener("pointerup", () => recording && endRecording(true));
+mic.addEventListener("pointercancel", () => recording && endRecording(false));
+
+function showPreview(words) {
+  const p = $("#rec-preview");
+  p.hidden = false;
+  p.textContent = words || "Listening…";
+  if (nearBottom()) scrollDown();
+}
+
+async function endRecording(sendIt, quiet = false) {
+  const r = recording;
+  recording = null;
+  clearInterval(r.timer);
+  $("#composer").classList.remove("recording", "cancelling");
+  $("#rec-bar").hidden = true;
+  const words = await (sendIt ? r.listener.stop() : r.listener.abort());
+  $("#rec-preview").hidden = true;
+  updateQuick();
+  if (quiet) return;
+  if (!sendIt) return toast("Voice note cancelled");
+  if (!words) return toast(Date.now() - r.started < 700 ? "Hold the mic while you talk, then let go to send." : "I didn't catch any words. Try again.");
+  try { await sendMessage(words + VOICE_NOTE); }
+  catch (e) { toast(e.message); input.value = words; grow(); } // keep your words, so nothing is lost
+}
+
+// ── voice call: you talk, Claude answers out loud, then it listens again ────
+
+const call = { on: false, spoken: new Set(), queue: [] };
+function setCallMode(mode, text) { $("#call").dataset.mode = mode; $("#call-state").textContent = text; }
+
+$("#call-btn").onclick = startCall;
+$("#info-call").onclick = () => { closeSheets(); startCall(); };
+
+async function startCall() {
+  const c = state.chats.get(state.current);
+  if (!c) return;
+  if (!speechApi() || !window.speechSynthesis) return toast("Voice calls need Safari on your iPhone.");
+  if (c.status === "ended") return toast("Claude has stopped in this chat. Tap Resume first.");
+  Object.assign(call, { on: true, chatId: c.id, since: Date.now(), muted: false, speaking: false, awaiting: false, queue: [], spoken: new Set(), listener: null, current: null });
+  speechSynthesis.cancel();
+  speechSynthesis.speak(new SpeechSynthesisUtterance("")); // iPhones only allow speech that starts from a tap
+  unlockAudio();
+  $("#call-avatar").innerHTML = avatar(c, "big");
+  $("#call-name").textContent = c.name;
+  $("#call-heard").textContent = "";
+  $("#call-said").textContent = "";
+  $("#call-time").textContent = "00:00";
+  $("#call-mute").classList.remove("on");
+  $("#call").hidden = false;
+  call.clock = setInterval(() => {
+    const s = Math.floor((Date.now() - call.since) / 1000);
+    $("#call-time").textContent = `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+  }, 1000);
+  try { call.wake = await navigator.wakeLock?.request("screen"); } catch {} // keep the screen on during the call
+  callChatChanged(null, c);
+  say(isWorking(c) ? "Claude is still working. I'll tell you what it says." : "Hi, I'm listening.");
+}
+
+// Whenever the chat changes: Claude started or finished working, needs your OK, or stopped.
+function callChatChanged(old, c) {
+  if (!call.on || c.id !== call.chatId) return;
+  if (isWorking(c) || c.pending) { call.awaiting = false; clearTimeout(call.waitTimer); }
+  $("#call-approval").hidden = !c.pending;
+  if (c.pending && !old?.pending) say(`Claude needs your OK to use ${c.pending.tool}. Tap Approve or Deny.`);
+  if (c.status === "ended" && old && old.status !== "ended") say("Claude has stopped in this chat.");
+  if (isWorking(c) && !call.speaking) $("#call-said").textContent = c.note || state.lastStep || "";
+  nextTurn();
+}
+
+// Your turn to talk — unless Claude is busy, talking, waiting for your OK, or you're muted.
+function nextTurn() {
+  if (!call.on || call.speaking || call.listener) return;
+  const c = state.chats.get(call.chatId);
+  if (!c || c.status === "ended") return setCallMode("idle", "Claude has stopped");
+  if (c.pending) return setCallMode("idle", "Waiting for your OK");
+  if (call.awaiting || isWorking(c)) return setCallMode("working", "Claude is working…");
+  if (call.muted) return setCallMode("idle", "You're muted. Tap Mute to talk.");
+  setCallMode("listening", "Listening…");
+  $("#call-heard").textContent = "";
+  call.listener = listen((words) => {
+    $("#call-heard").textContent = words;
+    clearTimeout(call.quiet);
+    call.quiet = setTimeout(finishTurn, 1600); // a short pause means you've finished talking
+  }, micBlocked);
+}
+
+async function finishTurn() {
+  const l = call.listener;
+  if (!l || !call.on) return;
+  call.listener = null;
+  call.awaiting = true; // don't start listening again until this has gone to Claude
+  const words = await l.stop();
+  if (!call.on) return;
+  if (!words) { call.awaiting = false; return nextTurn(); }
+  $("#call-heard").textContent = words;
+  clearTimeout(call.waitTimer);
+  call.waitTimer = setTimeout(() => { call.awaiting = false; nextTurn(); }, 20000);
+  setCallMode("working", "Sending…");
+  try { await sendMessage(words + VOICE_CALL, call.chatId); nextTurn(); }
+  catch (e) { call.awaiting = false; say(`Sorry, that didn't reach Claude. ${e.message}`); }
+}
+
+// Read Claude's words out once each. Markdown and code don't read well aloud, so they're tidied.
+function sayOnce(text) {
+  const key = text.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 200);
+  if (!key || call.spoken.has(key)) return;
+  call.spoken.add(key);
+  say(speakable(text));
+}
+const speakable = (s) => splitVoice(s).text
+  .replace(/```[\s\S]*?```/g, " There's some code in the chat. ")
+  .replace(/`([^`]*)`/g, "$1").replace(/\*\*|__/g, "").replace(/^#+\s*/gm, "")
+  .replace(/https?:\/\/\S+/g, "a link").replace(/^\s*([-*•]|\d+\.)\s+/gm, "").replace(/\|/g, " ")
+  .replace(/\s+/g, " ").trim();
+
+function say(text) {
+  if (!call.on || !text) return;
+  $("#call-said").textContent = text;
+  // Long replies go in pieces of a few sentences, which the iPhone voice handles more reliably.
+  let piece = "";
+  for (const sentence of text.match(/[^.!?]+(?:[.!?]+|$)/g) || [text]) {
+    if (piece && (piece + sentence).length > 240) { call.queue.push(piece.trim()); piece = ""; }
+    piece += sentence;
+  }
+  if (piece.trim()) call.queue.push(piece.trim());
+  if (!call.speaking) speakNext();
+}
+
+function speakNext() {
+  if (!call.on) return;
+  const text = call.queue.shift();
+  if (text === undefined) { call.speaking = false; call.current = null; return nextTurn(); }
+  call.speaking = true;
+  if (call.listener) { call.listener.abort(); call.listener = null; clearTimeout(call.quiet); } // never listen to itself
+  setCallMode("speaking", "Claude is talking…");
+  const u = new SpeechSynthesisUtterance(text);
+  if (voice) u.voice = voice;
+  u.rate = 1.03;
+  u.onend = u.onerror = () => { if (call.current === u) setTimeout(speakNext, 120); };
+  call.current = u;
+  speechSynthesis.speak(u);
+}
+
+function endCall() {
+  if (!call.on) return;
+  call.on = false;
+  call.listener?.abort();
+  call.listener = null;
+  call.queue = [];
+  call.current = null;
+  clearTimeout(call.quiet);
+  clearTimeout(call.waitTimer);
+  clearInterval(call.clock);
+  speechSynthesis.cancel();
+  try { call.wake?.release(); } catch {}
+  call.wake = null;
+  $("#call").hidden = true;
+}
+// The screen locked or you switched apps: the iPhone stops listening, so start again on return.
+function pauseCall() {
+  if (!call.on || !call.listener) return;
+  call.listener.abort();
+  call.listener = null;
+  clearTimeout(call.quiet);
+}
+async function resumeCall() {
+  if (!call.on) return;
+  try { call.wake = await navigator.wakeLock?.request("screen"); } catch {}
+  nextTurn();
+}
+
+$("#call-end").onclick = endCall;
+$("#call-mute").onclick = () => {
+  call.muted = !call.muted;
+  $("#call-mute").classList.toggle("on", call.muted);
+  if (call.muted) pauseCall();
+  nextTurn();
+};
+$("#call-skip").onclick = () => { // stop Claude talking and go straight to your turn
+  call.queue = [];
+  call.current = null;
+  speechSynthesis.cancel();
+  call.speaking = false;
+  nextTurn();
+};
+$("#call-approve").onclick = () => answer("allow");
+$("#call-deny").onclick = () => answer("deny");
 
 // ── keep the typing bar above the iPhone keyboard ──────────────────────────
 

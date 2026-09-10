@@ -48,6 +48,7 @@
       <span id="chat-avatar"></span>
       <span class="title"><span id="chat-name"></span><span id="chat-status" class="sub"></span></span>
     </button>
+    <button id="call-btn" class="icon-btn" aria-label="Voice call"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M5 3.5h3.2l1.6 4-2.1 1.5a11 11 0 0 0 7.3 7.3l1.5-2.1 4 1.6V19a1.8 1.8 0 0 1-1.9 1.8C10.3 20.3 3.7 13.7 3.2 5.4A1.8 1.8 0 0 1 5 3.5z"/></svg></button>
     <button id="screen-btn" class="icon-btn" aria-label="See the Mac's Terminal"><svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4" width="19" height="13" rx="2"/><path d="M8 21h8M12 17v4M6.5 8.5l2.5 2-2.5 2M11 12.5h3"/></svg></button>
   </header>
 
@@ -55,7 +56,8 @@
   <div class="stage">
     <main id="scroller" class="scroller">
       <div id="messages" class="messages"></div>
-      <div id="typing" class="bubble in typing" hidden><i></i><i></i><i></i></div>
+      <!-- "typing…", plus what Claude is doing: its latest note and latest step -->
+      <div id="typing" class="bubble in typing" hidden><div class="dots"><i></i><i></i><i></i></div><div id="doing" class="doing" hidden></div></div>
     </main>
 
     <div id="approval" class="approval" hidden>
@@ -69,6 +71,18 @@
         <button id="approve">Approve</button>
       </div>
     </div>
+
+    <!-- your words, live, while you hold the mic -->
+    <div id="rec-preview" class="bubble out rec-preview" hidden></div>
+
+    <!-- one-tap replies, shown while Claude is waiting for you -->
+    <div id="quick" class="quick" hidden>
+      <button data-say="Yes, go ahead.">Yes, go ahead</button>
+      <button data-say="Can you explain that more simply?">Explain simpler</button>
+      <button data-say="What did you change?">What changed?</button>
+      <button data-say="What should we do next?">What's next?</button>
+      <button data-say="Continue.">Continue</button>
+    </div>
   </div>
 
   <div id="ended" class="ended" hidden>
@@ -78,8 +92,11 @@
 
   <footer id="composer" class="composer">
     <div class="field"><textarea id="input" rows="1"></textarea></div>
+    <div id="rec-bar" class="rec-bar" hidden><span class="rec-dot"></span><span id="rec-time">0:00</span><span class="rec-cancel">‹ Slide to cancel</span></div>
     <button id="stop" class="round stop" aria-label="Stop Claude" hidden><svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><rect x="1" y="1" width="12" height="12" rx="2.5"/></svg></button>
     <button id="send" class="round send" aria-label="Send"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M3.4 20.4 21.5 12 3.4 3.6l-.01 6.53L15.5 12 3.39 13.87z"/></svg></button>
+    <!-- hold to record a voice note, like WhatsApp -->
+    <button id="mic" class="mic" aria-label="Hold to talk"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></button>
   </footer>
 </section>
 
@@ -109,6 +126,7 @@
     <div class="grabber"></div>
     <div class="group">
       <button id="read-all" class="cell">Read all</button>
+      <button id="sound-toggle" class="cell">Reply sound<span id="sound-state" class="muted"></span></button>
     </div>
     <button class="btn plain close">Cancel</button>
   </div>
@@ -124,6 +142,7 @@
       <p id="info-sub"></p>
     </div>
     <div class="tiles">
+      <button id="info-call" class="tile"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M5 3.5h3.2l1.6 4-2.1 1.5a11 11 0 0 0 7.3 7.3l1.5-2.1 4 1.6V19a1.8 1.8 0 0 1-1.9 1.8C10.3 20.3 3.7 13.7 3.2 5.4A1.8 1.8 0 0 1 5 3.5z"/></svg><span>Call</span></button>
       <button id="info-screen" class="tile"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4" width="19" height="13" rx="2"/><path d="M8 21h8M12 17v4M6.5 8.5l2.5 2-2.5 2M11 12.5h3"/></svg><span>Screen</span></button>
       <button id="open-mac" class="tile"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="11" rx="1.5"/><path d="M2 19.5h20"/></svg><span>Open on Mac</span></button>
       <button id="rename" class="tile"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13 7 4 4"/></svg><span>Rename</span></button>
@@ -148,6 +167,27 @@
       <button data-key="1">1</button><button data-key="2">2</button><button data-key="3">3</button><button data-key="4">4</button><button data-key="esc">Esc</button>
       <button data-key="up">↑</button><button data-key="down">↓</button><button data-key="tab">Tab</button><button data-key="shifttab">⇧Tab</button><button data-key="enter">⏎</button>
     </div>
+  </div>
+</div>
+
+<!-- ── voice call: a WhatsApp-style call screen. You talk, Claude answers out loud. ── -->
+<div id="call" class="call" data-mode="idle" hidden>
+  <div class="call-label"><svg width="11" height="13" viewBox="0 0 11 13" fill="currentColor" fill-rule="evenodd"><path d="M2 5.5V4a3.5 3.5 0 0 1 7 0v1.5h.5a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1h-8a1 1 0 0 1-1-1V6.5a1 1 0 0 1 1-1zm1.5 0h4V4a2 2 0 0 0-4 0z"/></svg>Voice call · speech stays on your iPhone</div>
+  <div id="call-avatar"></div>
+  <h2 id="call-name"></h2>
+  <div id="call-time" class="call-time">00:00</div>
+  <div class="call-middle">
+    <div id="call-state" class="call-state"></div>
+    <div id="call-heard" class="call-heard"></div>
+    <div id="call-said" class="call-said"></div>
+  </div>
+  <div id="call-approval" class="call-approval" hidden>
+    <button id="call-deny">Deny</button><button id="call-approve">Approve</button>
+  </div>
+  <div class="call-btns">
+    <button id="call-mute" class="call-btn"><span class="circle"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M4 4l16 16"/></svg></span>Mute</button>
+    <button id="call-end" class="call-btn end"><span class="circle"><svg width="30" height="30" viewBox="0 0 24 24" fill="currentColor"><path transform="rotate(135 12 12)" d="M5 3.5h3.2l1.6 4-2.1 1.5a11 11 0 0 0 7.3 7.3l1.5-2.1 4 1.6V19a1.8 1.8 0 0 1-1.9 1.8C10.3 20.3 3.7 13.7 3.2 5.4A1.8 1.8 0 0 1 5 3.5z"/></svg></span>End</button>
+    <button id="call-skip" class="call-btn"><span class="circle"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M5 5.5v13l9.5-6.5zM16.5 5.5h2.2v13h-2.2z"/></svg></span>Skip</button>
   </div>
 </div>
 
