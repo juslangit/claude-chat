@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Claude Chats">
+<meta name="theme-color" content="#008069">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icon.png">
+<link rel="stylesheet" href="/style.css">
+<title>Claude Chats</title>
+</head>
+<body>
+
+<!-- ── chat list ─────────────────────────────────────── -->
+<section id="list-view" class="view">
+  <header class="bar">
+    <h1>Claude Chats</h1>
+    <span id="conn" class="conn" title="Connecting to the Mac…"></span>
+  </header>
+  <main id="chat-list" class="chat-list"></main>
+  <button id="new-chat" class="fab" aria-label="New chat">+</button>
+</section>
+
+<!-- ── one chat ──────────────────────────────────────── -->
+<section id="chat-view" class="view" hidden>
+  <header class="bar chat-bar">
+    <button id="back" class="icon-btn back" aria-label="Back to chats">‹</button>
+    <span id="chat-avatar"></span>
+    <div class="title">
+      <div id="chat-name"></div>
+      <div id="chat-status" class="sub"></div>
+    </div>
+    <button id="screen-btn" class="icon-btn" aria-label="See the Mac's Terminal">🖥</button>
+    <button id="menu-btn" class="icon-btn" aria-label="More">⋮</button>
+  </header>
+
+  <main id="scroller" class="scroller">
+    <div id="messages" class="messages"></div>
+    <div id="typing" class="msg assistant typing" hidden><i></i><i></i><i></i></div>
+  </main>
+
+  <div id="approval" class="approval" hidden>
+    <div class="approval-head">⚠️ Claude wants to use <b id="approval-tool"></b></div>
+    <div id="approval-why" class="approval-why"></div>
+    <pre id="approval-detail"></pre>
+    <div class="btns">
+      <button id="deny" class="btn deny">Deny</button>
+      <button id="approve" class="btn approve">Approve</button>
+    </div>
+  </div>
+
+  <div id="ended" class="ended" hidden>
+    <p>Claude has stopped in this chat.</p>
+    <button id="resume" class="btn approve">Resume on the Mac</button>
+  </div>
+
+  <footer id="composer" class="composer">
+    <textarea id="input" rows="1" placeholder="Message Claude"></textarea>
+    <button id="stop" class="round stop" aria-label="Stop Claude" hidden>■</button>
+    <button id="send" class="round send" aria-label="Send">➤</button>
+  </footer>
+</section>
+
+<!-- ── sheets ────────────────────────────────────────── -->
+<div id="new-sheet" class="sheet" hidden>
+  <form id="new-form" class="card">
+    <h2>New chat</h2>
+    <p class="hint">A Terminal window with Claude Code opens on the Mac, in your project folder.</p>
+    <input id="new-name" placeholder="Name (optional — or it's named after your first message)" autocomplete="off" maxlength="60">
+    <button id="new-go" class="btn approve" type="submit">Start chat</button>
+    <button class="btn plain close" type="button">Cancel</button>
+  </form>
+</div>
+
+<div id="menu" class="sheet" hidden>
+  <div class="card">
+    <button id="open-mac" class="menu-item">🖥  Open this chat on the Mac</button>
+    <button id="rename" class="menu-item">✏️  Rename</button>
+    <button id="end-chat" class="menu-item danger">✕  End chat</button>
+    <button class="btn plain close">Cancel</button>
+  </div>
+</div>
+
+<div id="screen" class="sheet" hidden>
+  <div class="card screen">
+    <div class="screen-head"><h2>Mac Terminal</h2><button class="icon-btn close" aria-label="Close">✕</button></div>
+    <pre id="screen-text"></pre>
+    <div class="keys">
+      <button data-key="1">1</button><button data-key="2">2</button><button data-key="3">3</button><button data-key="4">4</button><button data-key="esc">Esc</button>
+      <button data-key="up">↑</button><button data-key="down">↓</button><button data-key="tab">Tab</button><button data-key="shifttab">⇧Tab</button><button data-key="enter">⏎</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+<script src="/app.js"></script>
+</body>
+</html>

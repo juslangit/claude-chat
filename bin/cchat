@@ -1,0 +1,15 @@
+#!/bin/zsh
+# Start a Claude Code chat from the Mac that also appears on the phone.
+#
+#   cchat              new chat (named after your first message)
+#   cchat kedai fixes  new chat called "kedai fixes"
+#
+# Plain `claude` still works as before and stays private to the Mac.
+
+PORT=${CLAUDE_CHAT_PORT:-4477}
+resp=$(curl -sf -X POST "http://127.0.0.1:$PORT/api/chats" -H 'content-type: application/json' \
+  -d "$(jq -n --arg n "$*" '{name: $n, terminal: false}')") || {
+  echo "The claude-chat server isn't running. Start it with: launchctl kickstart gui/$(id -u)/com.juslangit.claude-chat"
+  exit 1
+}
+exec /opt/homebrew/bin/tmux -L claude-chat attach -t "$(echo "$resp" | jq -r .tmux)"
