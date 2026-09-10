@@ -80,10 +80,12 @@ gh auth status >/dev/null 2>&1 || gh auth login --web --git-protocol https
 gh auth setup-git
 
 step "Your projects → $PROJECTS"
-tr -d '\r' < "$WORK/projects.txt" | while read -r name remote; do
+# Name and address are split by a tab, so a project called "TODAK ACADEMY" stays in one piece.
+tr -d '\r' < "$WORK/projects.txt" | while IFS=$'\t' read -r name remote; do
   [ -n "$name" ] || continue
   if [ -d "$PROJECTS/$name/.git" ]; then say "$name — already here"
-  else git clone -q "$remote" "$PROJECTS/$name" && say "$name — copied"; fi
+  elif git clone -q "$remote" "$PROJECTS/$name"; then say "$name — copied"
+  else say "$name — couldn't copy it (see git's message above); carrying on with the rest"; fi
 done
 
 step "claude-chat"

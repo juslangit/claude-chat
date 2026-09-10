@@ -41,6 +41,23 @@ const APPROVAL_WAIT_MS = 29 * 60 * 1000;
 
 fs.mkdirSync(TERM_DIR, { recursive: true });
 
+// The log only ever grows (launchd on a Mac and start.sh on a PC add to it). Past 5 MB, keep its last
+// 1 MB. Both open it in append mode, so they carry on writing at the new end.
+const LOG_FILE = path.join(DATA, "server.log");
+function trimLog() {
+  try {
+    const size = fs.statSync(LOG_FILE).size;
+    if (size < 5e6) return;
+    const tail = Buffer.alloc(1e6), fd = fs.openSync(LOG_FILE, "r");
+    fs.readSync(fd, tail, 0, tail.length, size - tail.length);
+    fs.closeSync(fd);
+    fs.truncateSync(LOG_FILE, 0);
+    fs.appendFileSync(LOG_FILE, tail.subarray(tail.indexOf(10) + 1)); // from the first whole line
+  } catch {}
+}
+trimLog();
+setInterval(trimLog, 60 * 60 * 1000);
+
 // A random password shared only with hook.mjs, so nothing else can pretend to be Claude Code.
 if (!fs.existsSync(SECRET_FILE)) fs.writeFileSync(SECRET_FILE, crypto.randomBytes(24).toString("hex"), { mode: 0o600 });
 const SECRET = fs.readFileSync(SECRET_FILE, "utf8").trim();
@@ -71,9 +88,27 @@ const transcriptPath = (sessionId, cwd = WORKDIR) => path.join(HOME, ".claude/pr
 // Saved to disk: which chats exist. { id, sessionId, name, autoName, tmux, cwd, transcript, createdAt }
 // cwd is the folder claude runs in; chats from before it existed have none and use WORKDIR.
 let chats = {};
-try { chats = JSON.parse(fs.readFileSync(CHATS_FILE, "utf8")); } catch {}
+try { chats = JSON.parse(fs.readFileSync(CHATS_FILE, "utf8")); }
+catch (e) {
+  // A list that can't be read is put aside rather than overwritten, so it can still be recovered by hand.
+  if (e.code !== "ENOENT") {
+    const aside = `${CHATS_FILE}.unreadable-${Date.now()}`;
+    try { fs.renameSync(CHATS_FILE, aside); } catch {}
+    console.error(`chats.json couldn't be read (${e.message}), so it was kept as ${path.basename(aside)} and the list starts empty`);
+  }
+}
 let saveTimer;
-const save = () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => fs.writeFileSync(CHATS_FILE, JSON.stringify(chats, null, 2)), 200); };
+// Written to a spare file first and then swapped in, so a power cut in the middle of a save leaves the
+// old list whole instead of half a file.
+const save = () => {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    try {
+      fs.writeFileSync(`${CHATS_FILE}.tmp`, JSON.stringify(chats, null, 2));
+      fs.renameSync(`${CHATS_FILE}.tmp`, CHATS_FILE);
+    } catch (e) { console.error("couldn't save the chat list:", e.message); }
+  }, 200);
+};
 
 // Only in memory: what is happening in each chat right now.
 const runtime = {};
@@ -96,7 +131,8 @@ function summary(c) {
 const clients = new Set();
 const broadcast = (event) => { const line = `data: ${JSON.stringify(event)}\n\n`; for (const res of clients) res.write(line); };
 const chatChanged = (id) => chats[id] && broadcast({ type: "chat", chat: summary(chats[id]) });
-setInterval(() => { for (const res of clients) res.write(": ping\n\n"); }, 20000);
+// A ping every 20 seconds the phone can see, so it can tell a connection that died without saying so.
+setInterval(() => { for (const res of clients) res.write("event: ping\ndata: {}\n\n"); }, 20000);
 
 // ── reading what was said, from Claude Code's transcript file ──────────────────────────────
 
@@ -214,7 +250,8 @@ function pushSystem(id, text) {
   broadcast({ type: "messages", chatId: id, messages: [m] });
 }
 
-setInterval(() => { for (const id in chats) readTranscript(id); }, 600);
+// Only running chats can have anything new (a stopped one is read one last time as it stops).
+setInterval(() => { for (const id in chats) if (rt(id).alive) readTranscript(id); }, 600);
 
 // Which chats still have a running claude? (tmux session exists)
 async function refreshAlive() {
@@ -223,6 +260,7 @@ async function refreshAlive() {
   for (const c of Object.values(chats)) {
     const r = rt(c.id), alive = names.includes(c.tmux);
     if (r.alive === alive) continue;
+    if (!alive) readTranscript(c.id); // Claude's last words before it stopped
     r.alive = alive;
     if (!alive) resolvePending(c.id, null);
     chatChanged(c.id);
@@ -232,18 +270,28 @@ setInterval(refreshAlive, 3000);
 
 // ── Claude's progress notes, read off the screen while it works (see notes.mjs) ───────────────
 
+// Hooks tell the server when Claude starts and stops working, but a hook can go missing (a server
+// restart, hooks broken on a new computer), and then the phone said "typing…" forever. So the screen
+// is checked too: Claude Code's footer reads "esc to interrupt" while it works. Claude sitting at its
+// ❯ prompt without it for 6 seconds means it has finished, whatever the hooks said.
+const QUIET_MS = 6000;
 async function pollNotes() {
   for (const c of Object.values(chats)) {
     const r = rt(c.id);
-    if (!r.alive || r.status === "starting") continue;
-    if (r.status === "idle") {
-      // After a server restart no hook has said "working" yet. Claude Code's footer reads
-      // "esc to interrupt" while it works, so go by that until the next hook arrives.
+    if (!r.alive) continue;
+    if (r.status !== "approval") {
       let visible = "";
       try { visible = (await tmux("capture-pane", "-p", "-t", c.tmux)).trimEnd(); } catch { continue; }
-      if (!/esc to interrupt/.test(visible.slice(-400))) continue;
-      r.status = "working";
-      chatChanged(c.id);
+      const busy = /esc to interrupt/.test(visible.slice(-400));
+      if (busy) {
+        r.quietSince = 0;
+        if (r.status === "idle") { r.status = "working"; chatChanged(c.id); }
+      } else if (r.status !== "idle" && boxIn(visible) != null) {
+        r.quietSince ||= Date.now();
+        if (Date.now() - r.quietSince >= QUIET_MS) { r.status = "idle"; r.quietSince = 0; chatChanged(c.id); }
+      } else {
+        r.quietSince = 0;
+      }
     }
     if (r.status !== "working" && r.status !== "approval") continue;
     let screen;
@@ -272,11 +320,24 @@ setInterval(async () => {
 // Chats run with bypassPermissions, like plain `claude` on this Mac: nothing asks first. The deny
 // list in ~/.claude/settings.json (sudo, rm -rf, force-push…) still applies, and anything Claude Code
 // asks about anyway still reaches the phone through the PermissionRequest hook.
+// On a Windows PC, Claude runs in WSL with start.sh's short Linux PATH, so it couldn't find Windows'
+// own tools (PowerShell, cmd, Windows Terminal, winget) without being told where they are. Add the
+// Windows folders that exist, after the Linux ones so Linux tools still come first.
+const WIN_USER = WORKDIR.match(/^\/mnt\/c\/Users\/([^/]+)\//)?.[1];
+const WINDOWS_DIRS = IS_WSL ? [
+  "/mnt/c/Windows/System32", "/mnt/c/Windows", "/mnt/c/Windows/System32/Wbem",
+  "/mnt/c/Windows/System32/WindowsPowerShell/v1.0", "/mnt/c/Windows/System32/OpenSSH",
+  "/mnt/c/Program Files/PowerShell/7", "/mnt/c/Program Files/Git/cmd", "/mnt/c/Program Files/Tailscale",
+  WIN_USER && `/mnt/c/Users/${WIN_USER}/AppData/Local/Microsoft/WindowsApps`,
+].filter((d) => d && fs.existsSync(d)) : [];
+const WSL_PATH = [process.env.PATH, ...WINDOWS_DIRS].filter(Boolean).join(":");
+
 async function startClaude(c, { resume = false } = {}) {
   const args = [CLAUDE, resume ? "--resume" : "--session-id", c.sessionId, "-n", c.name,
     "--permission-mode", "bypassPermissions", "--settings", HOOKS_FILE];
   await tmux("new-session", "-d", "-s", c.tmux, "-c", c.cwd || WORKDIR, "-x", "140", "-y", "45",
-    "-e", `CLAUDE_CHAT_ID=${c.id}`, "-e", `CLAUDE_CHAT_PORT=${PORT}`, "-e", `CLAUDE_CHAT_DATA=${DATA}`, args.map(shq).join(" "));
+    "-e", `CLAUDE_CHAT_ID=${c.id}`, "-e", `CLAUDE_CHAT_PORT=${PORT}`, "-e", `CLAUDE_CHAT_DATA=${DATA}`,
+    ...(IS_WSL ? ["-e", `PATH=${WSL_PATH}`] : []), args.map(shq).join(" "));
   const r = rt(c.id);
   r.alive = true;
   r.status = "starting";
@@ -287,7 +348,10 @@ async function startClaude(c, { resume = false } = {}) {
 // Windows Terminal on a Windows PC.
 async function openTerminal(c) {
   if (IS_WSL) {
-    return run("/mnt/c/Windows/System32/cmd.exe", ["/c", "start", "", "wt.exe", "-w", "0", "new-tab", "--title", c.name,
+    // cmd.exe treats & | < > ^ " % ! as commands, so they're left out of the window's title — a chat
+    // called "R&D" would otherwise open a blank tab and try to run "D".
+    const title = c.name.replace(/[&|<>^"%!]/g, "").trim() || "Claude";
+    return run("/mnt/c/Windows/System32/cmd.exe", ["/c", "start", "", "wt.exe", "-w", "0", "new-tab", "--title", title,
       "wsl.exe", "-e", TMUX, "-L", SOCKET, "attach", "-t", c.tmux]);
   }
   const file = path.join(TERM_DIR, `${c.tmux}.command`);
@@ -344,7 +408,7 @@ async function newPairCode(req) {
   const from = await callerOs(req);
   console.log(`pairing code asked for by: ${from}`);
   if (!(from === "local" || /^(ios|android)$/i.test(from))) throw fail("Pairing codes can only be made on your phone.", 403);
-  pairCode = { code: String(crypto.randomInt(100000, 1000000)), expires: Date.now() + 30 * 60 * 1000 };
+  pairCode = { code: String(crypto.randomInt(100000, 1000000)), expires: Date.now() + 30 * 60 * 1000, wrong: 0 };
   if (!SELF_URL) await otherComputers();
   return { code: pairCode.code, expires: pairCode.expires, mac: `curl -fsSL ${SELF_URL}/setup/mac | bash`, windows: `irm ${SELF_URL}/setup/windows | iex` };
 }
@@ -352,6 +416,8 @@ async function newPairCode(req) {
 async function pairSync({ id, name, code } = {}) {
   if (!SYNCTHING) throw fail("Syncthing isn't installed on this computer.", 409);
   if (!pairCode || String(code || "").replace(/\s/g, "") !== pairCode.code || Date.now() > pairCode.expires) {
+    // Five wrong codes cancel it, so it can't be found by trying all million.
+    if (pairCode && ++pairCode.wrong >= 5) pairCode = null;
     throw fail("That pairing code is wrong or has run out. Get a new one on your iPhone: Chats → ⋯ → Computers → Add a computer.", 403);
   }
   if (!/^[A-Z2-7]{7}(-[A-Z2-7]{7}){7}$/.test(String(id))) throw fail("That isn't a Syncthing ID.");
@@ -409,7 +475,10 @@ async function createChat(name, { terminal = true, project } = {}) {
 
 // The text in claude's input box: the lines between the last two ──── rules on screen.
 async function inputBox(c) {
-  const lines = (await tmux("capture-pane", "-p", "-t", c.tmux)).split("\n");
+  return boxIn(await tmux("capture-pane", "-p", "-t", c.tmux));
+}
+function boxIn(screen) {
+  const lines = screen.split("\n");
   const rules = lines.flatMap((l, i) => (/^\s*─{10,}/.test(l) ? [i] : []));
   if (rules.length < 2) return null;
   const [a, b] = rules.slice(-2);
@@ -678,7 +747,9 @@ if (!process.env.CLAUDE_CHAT_COMPUTER) {
 // Tailscale's command-line tool. This Mac runs it in userspace mode with its own socket (D-004);
 // a Mac with the Tailscale app, a Windows PC (seen from WSL) or Linux keep it in the usual places.
 const USERSPACE_SOCKET = path.join(HOME, "Library/Application Support/tailscale-user/tailscaled.sock");
-const TAILSCALE = [
+// Looked for on every call, not once at start: after a restart this server can be up before Tailscale
+// is, and then it used to go without Tailscale (and its safety checks) until it was restarted again.
+const tailscaleTools = () => [
   ["/opt/homebrew/opt/tailscale/bin/tailscale", `--socket=${USERSPACE_SOCKET}`],
   ["/Applications/Tailscale.app/Contents/MacOS/Tailscale"],
   ["/mnt/c/Program Files/Tailscale/tailscale.exe"],
@@ -687,7 +758,7 @@ const TAILSCALE = [
 ].filter(([bin, sock]) => fs.existsSync(bin) && (!sock || fs.existsSync(USERSPACE_SOCKET)));
 
 async function tailnetStatus() {
-  for (const [bin, ...args] of TAILSCALE) {
+  for (const [bin, ...args] of tailscaleTools()) {
     try { return JSON.parse((await run(bin, [...args, "status", "--json"], { timeout: 5000, maxBuffer: 8e6 })).stdout); } catch {}
   }
   return null;
@@ -695,9 +766,11 @@ async function tailnetStatus() {
 
 let TAILNET = null;  // e.g. "tail8806f8.ts.net"
 let SELF_URL = null; // e.g. "https://luqman-mac.tail8806f8.ts.net"
-let peers = { at: 0, list: [] };
+let peers = { until: 0, list: [] };
+// The other computers on your tailnet, switched off ones too, with when Tailscale last saw them —
+// the phone uses that to say "offline since 19:43".
 async function otherComputers() {
-  if (Date.now() - peers.at < 30000) return peers.list;
+  if (Date.now() < peers.until) return peers.list;
   const st = await tailnetStatus();
   const dns = (d) => String(d || "").replace(/\.$/, "");
   if (st?.Self?.DNSName) {
@@ -705,26 +778,46 @@ async function otherComputers() {
     TAILNET = dns(st.Self.DNSName).split(".").slice(1).join(".");
   }
   const list = Object.values(st?.Peer || {})
-    .filter((p) => p.Online && /^(macos|windows|linux)$/i.test(p.OS) && p.DNSName)
-    .map((p) => ({ url: `https://${dns(p.DNSName)}`, os: p.OS }));
-  peers = { at: Date.now(), list };
+    .filter((p) => /^(macos|windows|linux)$/i.test(p.OS) && p.DNSName)
+    .map((p) => ({
+      url: `https://${dns(p.DNSName)}`, os: p.OS, online: !!p.Online,
+      lastSeen: !p.Online && Date.parse(p.LastSeen) > 0 ? Date.parse(p.LastSeen) : null,
+    }));
+  peers = { until: Date.now() + (st ? 30000 : 5000), list }; // no answer from Tailscale: ask again soon
   return list;
 }
 await otherComputers();
 
-function originAllowed(origin) {
-  let host;
-  try { host = new URL(origin).hostname; } catch { return false; }
-  if (host === "127.0.0.1" || host === "localhost") return true;
-  return TAILNET ? host.endsWith(`.${TAILNET}`) : host.endsWith(".ts.net");
+const hostname = (h) => String(h || "").replace(/:\d+$/, "").replace(/^\[|\]$/g, "").toLowerCase();
+const isLocal = (name) => name === "127.0.0.1" || name === "localhost" || name === "::1";
+
+// The name a request was sent to must be this computer or one on your tailnet. A website can't fake
+// that header, so this stops "DNS rebinding" — a page pointing its own name at 127.0.0.1 to read chats.
+function hostAllowed(req) {
+  return [req.headers.host, req.headers["x-forwarded-host"]].filter(Boolean).every((h) => {
+    const name = hostname(h);
+    return isLocal(name) || (TAILNET ? name.endsWith(`.${TAILNET}`) : name.endsWith(".ts.net"));
+  });
+}
+
+// Pages from your own tailnet may talk to this computer. Until Tailscale has said which tailnet that
+// is, only the page this computer served itself is let in — never any other *.ts.net site.
+function originAllowed(origin, req) {
+  let url;
+  try { url = new URL(origin); } catch { return false; }
+  if (isLocal(url.hostname)) return true;
+  if (TAILNET) return url.hostname.endsWith(`.${TAILNET}`);
+  return [req.headers.host, req.headers["x-forwarded-host"]].includes(url.host);
 }
 
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, "http://localhost");
+    if (!TAILNET) await otherComputers(); // Tailscale may have started since this server did
+    if (!hostAllowed(req)) throw fail("Not allowed.", 403);
     const origin = req.headers.origin;
     if (origin) {
-      if (!originAllowed(origin)) throw fail("Not allowed from that page.", 403);
+      if (!originAllowed(origin, req)) throw fail("Not allowed from that page.", 403);
       res.setHeader("Access-Control-Allow-Origin", origin);
       res.setHeader("Vary", "Origin");
       if (req.method === "OPTIONS") {
@@ -739,7 +832,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (url.pathname === "/events") {
       res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" });
-      res.write(": connected\n\n");
+      res.write("retry: 3000\n: connected\n\n"); // if the line drops, the phone tries again after 3 s
       clients.add(res);
       req.on("close", () => clients.delete(res));
       return;

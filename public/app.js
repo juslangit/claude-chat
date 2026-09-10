@@ -80,11 +80,47 @@ function toast(text) {
 const chatApi = (c, sub, opts) => api(`/api/chats/${c.id}${sub}`, opts, compOf(c));
 
 function connect(comp) {
+  clearTimeout(comp.retry);
   comp.source?.close();
-  comp.source = new EventSource(`${comp.base}/events`);
-  comp.source.onopen = () => { comp.online = true; if (comp === home) { setOnline(true); checkVersion(); } refreshComputer(comp); };
-  comp.source.onerror = () => { comp.online = false; if (comp === home) setOnline(false); renderList(); };
-  comp.source.onmessage = (e) => onEvent(JSON.parse(e.data), comp);
+  const src = (comp.source = new EventSource(`${comp.base}/events`));
+  comp.heard = Date.now();
+  src.onopen = () => { comp.heard = Date.now(); comp.tries = 0; setComputerOnline(comp, true); if (comp === home) checkVersion(); refreshComputer(comp); };
+  src.onerror = () => {
+    setComputerOnline(comp, false);
+    // Safari gives up for good when the computer answers with an error — tailscale serve does, while
+    // claude-chat restarts — and the app sat on "Connecting…" until you left it and came back. So try
+    // again here: after 2 seconds, then 4, 8, 16, and every 30 after that.
+    if (src.readyState === EventSource.CLOSED && comp.source === src) {
+      comp.tries = (comp.tries || 0) + 1;
+      comp.retry = setTimeout(() => connect(comp), Math.min(30000, 1000 * 2 ** comp.tries));
+    }
+  };
+  src.onmessage = (e) => { comp.heard = Date.now(); onEvent(JSON.parse(e.data), comp); };
+  src.addEventListener("ping", () => (comp.heard = Date.now()));
+}
+// Each computer pings every 20 seconds. A minute of silence means the line died without saying so — the
+// computer dropped off Wi-Fi, and nothing ever tells the phone. Show it as offline from when it was last
+// heard, and try a fresh line; the moment one opens, it's back online.
+setInterval(() => {
+  if (document.visibilityState !== "visible") return;
+  for (const comp of state.computers) {
+    if (!comp.source || Date.now() - comp.heard < 60000) continue;
+    setComputerOnline(comp, false, comp.heard);
+    connect(comp);
+  }
+}, 15000);
+
+function setComputerOnline(comp, on, since = Date.now()) {
+  const changed = comp.online !== on || (!on && comp.offlineSince == null);
+  const wasOnline = comp.online;
+  comp.online = on;
+  if (on) { comp.offlineSince = null; comp.lastSeen = null; } else comp.offlineSince ??= since;
+  if (comp === home) setOnline(on);
+  if (!changed) return;
+  renderList();
+  renderComputers();
+  if (cur()?.comp === comp.id) renderChatChrome();
+  if (wasOnline && !on) findComputers(); // ask the other computers when Tailscale last saw it
 }
 // Like WhatsApp: when the phone can't reach the Mac, the title says "Connecting…".
 function setOnline(on) {
@@ -98,7 +134,9 @@ function setOnline(on) {
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState !== "visible") return pauseCall();
   for (const comp of state.computers) {
-    if (!comp.source || comp.source.readyState === EventSource.CLOSED) connect(comp); else refreshComputer(comp);
+    // Pings come every 20 s, so nothing for 25 s means the line died while the phone was away.
+    if (!comp.source || comp.source.readyState === EventSource.CLOSED || Date.now() - comp.heard > 25000) connect(comp);
+    else refreshComputer(comp);
   }
   findComputers();
   checkVersion();
@@ -127,6 +165,7 @@ function onEvent(ev, comp = home) {
     renderList();
   } else if (ev.type === "messages") {
     const key = keyOf(comp, ev.chatId);
+    loading.get(key)?.push(...ev.messages); // the chat's history is loading: these go after it
     const list = state.messages.get(key);
     if (!list) return;
     const seen = new Set(list.map((m) => m.id));
@@ -183,12 +222,22 @@ async function checkVersion() {
   saveDraft();
   location.reload();
 }
+// Every computer that answers lists the others on your tailnet, with when Tailscale last saw the ones
+// that are off. Asking all of them means "offline since" still works when the Mac is the one that's gone.
 async function findComputers() {
-  let urls = [];
-  try { urls = (await api("/api/computers")).map((p) => p.url); } catch {}
+  const lists = await Promise.all(state.computers.filter((c) => c === home || c.online)
+    .map((c) => api("/api/computers", { timeout: 5000 }, c).catch(() => [])));
+  const peers = lists.flat();
+  for (const comp of state.computers) {
+    const seen = peers.find((p) => p.url === (comp === home ? home.url : comp.base))?.lastSeen;
+    if (!comp.online && seen) comp.lastSeen = seen;
+  }
+  const urls = peers.filter((p) => p.online !== false).map((p) => p.url);
   for (const k of read("computers", [])) if (!urls.includes(k)) urls.push(k);
   await Promise.all(urls.map(addComputer));
   renderComputers();
+  renderList();
+  if (cur() && !compOf(cur()).online) renderChatChrome();
 }
 async function addComputer(base) {
   if (!base || base === home.url || state.computers.some((c) => c.base === base)) return;
@@ -209,12 +258,30 @@ function whereLabel(c) {
   return `<span class="where">${esc(comp.name || "This computer")}${comp.online ? "" : " (offline)"}</span> · `;
 }
 
+// "offline since 19:43": when Tailscale last saw it (asked of the other computers), or else when this
+// phone lost it.
+function offlineText(comp) {
+  const t = comp.lastSeen || comp.offlineSince;
+  return t ? `offline since ${sameDay(new Date(t), new Date()) ? clock(t) : lastSeen(t)}` : "offline";
+}
+
 function renderComputers() {
   $("#computers-count").textContent = state.computers.filter((c) => c.online).length;
   $("#computer-list").innerHTML = state.computers.map((c) => `<div class="cell computer">
       <span class="pick-text"><b>${esc(c.name || "This computer")}</b><small>${c === home ? "This app comes from here" : c.os === "windows" ? "Windows PC" : c.os === "mac" ? "Mac" : "Computer"}</small></span>
-      <span class="state ${c.online ? "on" : ""}">${c.online ? "online" : "offline"}</span></div>`).join("");
+      <span class="state ${c.online ? "on" : ""}">${c.online ? "online" : offlineText(c)}</span></div>`).join("");
 }
+
+// Above the chat list, a note for each computer the phone can't reach — or one for the phone itself.
+function renderOfflineNotes() {
+  $("#offline-notes").innerHTML = navigator.onLine === false
+    ? `<div class="offline-note"><b>This iPhone is offline.</b><small>Your chats catch up when it's back on the internet.</small></div>`
+    : state.computers.filter((c) => !c.online && c.offlineSince).map((c) => `<div class="offline-note">
+        <b>${esc(c.name || "This computer")}</b> — ${offlineText(c)}
+        <small>It may be asleep, switched off or off Wi-Fi. Its chats catch up when it's back.</small></div>`).join("");
+}
+addEventListener("online", () => renderList());
+addEventListener("offline", () => renderList());
 
 // ── chat list ──────────────────────────────────────────────────────────────
 
@@ -259,6 +326,7 @@ function renderList() {
     ? `<div class="empty"><p>No chats yet.</p><p>Tap <b>+</b> to start one. A Terminal window with Claude Code opens on the Mac, ready to go.</p></div>`
     : shown.length ? shown.map(rowHtml).join("") : `<div class="empty">${NOTHING[state.filter]}</div>`;
   for (const chip of document.querySelectorAll(".chip")) chip.classList.toggle("on", chip.dataset.filter === state.filter);
+  renderOfflineNotes();
   renderBackCount();
 }
 
@@ -351,7 +419,8 @@ function lastSeen(ts) {
 }
 
 function subtitle(c) {
-  if (!state.online) return "connecting…";
+  const comp = compOf(c); // the computer this chat runs on, which isn't always the one the page came from
+  if (!comp.online) return comp.offlineSince ? offlineText(comp) : "connecting…";
   if (c.pending?.questions) return "asked you a question";
   if (c.status !== "idle" && c.status !== "ended") return STATUS[c.status] || "";
   if (Date.now() < state.hintUntil) return "tap here for chat info";
@@ -403,11 +472,21 @@ function markSeen(c) {
   write("seen", state.seen);
 }
 
+// Messages that arrive while a chat's history is loading wait here and go after it. Before, they were
+// wiped when the history replaced the screen, and came back only when you reopened the chat.
+const loading = new Map(); // chat key → messages that arrived during its load
+
 async function loadMessages(id) {
   const c = state.chats.get(id);
   if (!c) return; // its computer hasn't answered yet; refreshComputer calls this again when it does
+  const live = [];
+  loading.set(id, live);
   try {
-    const msgs = await chatApi(c, "/messages");
+    const got = await chatApi(c, "/messages");
+    if (loading.get(id) !== live) return; // a newer load of this chat started meanwhile; it wins
+    loading.delete(id);
+    const have = new Set(got.map((m) => m.id));
+    const msgs = [...got, ...live.filter((m) => !have.has(m.id))];
     state.messages.set(id, msgs);
     if (state.current !== id) return;
     resetGroups();
@@ -415,7 +494,10 @@ async function loadMessages(id) {
     addMessages(msgs);
     if (c.status === "working" || c.status === "approval") markAllRead();
     scrollDown();
-  } catch (e) { toast(e.message); }
+  } catch (e) {
+    if (loading.get(id) === live) loading.delete(id);
+    toast(e.message);
+  }
 }
 
 function appendMessages(msgs) {
@@ -878,25 +960,31 @@ function listen(onWords, onBlocked) {
   rec.lang = "en-US";
   rec.interimResults = true;
   rec.continuous = true;
-  let kept = "", heard = "", wanted = true, finish;
+  let kept = "", heard = "", wanted = true, finish, startedAt = 0, quickEnds = 0;
   const done = new Promise((resolve) => (finish = resolve));
   const all = () => `${kept} ${heard}`.replace(/\s+/g, " ").trim();
-  rec.onresult = (e) => { heard = [...e.results].map((r) => r[0].transcript).join(" "); onWords?.(all()); };
+  const start = () => { startedAt = Date.now(); rec.start(); };
+  rec.onresult = (e) => { quickEnds = 0; heard = [...e.results].map((r) => r[0].transcript).join(" "); onWords?.(all()); };
   rec.onerror = (e) => { if (e.error === "not-allowed" || e.error === "service-not-allowed") { wanted = false; onBlocked?.(); } };
   rec.onend = () => {
     kept = all();
     heard = "";
-    if (wanted) { try { rec.start(); return; } catch {} }
+    // Ending straight after starting, five times running, means listening isn't working (another app
+    // has the microphone, say). Give up then, instead of starting it again forever.
+    quickEnds = Date.now() - startedAt < 1000 ? quickEnds + 1 : 0;
+    if (wanted && quickEnds < 5) { try { start(); return; } catch {} }
+    wanted = false;
     finish(kept);
   };
-  try { rec.start(); } catch { wanted = false; finish(""); }
+  try { start(); } catch { wanted = false; finish(""); }
   const end = (how) => {
     wanted = false;
     try { rec[how](); } catch { finish(all()); }
     setTimeout(() => finish(all()), 2500); // in case the iPhone never says it has stopped
     return done;
   };
-  return { stop: () => end("stop"), abort: () => end("abort") };
+  // `done` gives the words once listening has ended, whether it was told to or stopped by itself.
+  return { stop: () => end("stop"), abort: () => end("abort"), done };
 }
 
 function micBlocked() {
@@ -979,7 +1067,7 @@ async function startCall() {
   if (!c) return;
   if (!speechApi() || !window.speechSynthesis) return toast("Voice calls need Safari on your iPhone.");
   if (c.status === "ended") return toast("Claude has stopped in this chat. Tap Resume first.");
-  Object.assign(call, { on: true, chatId: c.key, since: Date.now(), muted: false, speaking: false, awaiting: false, queue: [], spoken: new Set(), listener: null, current: null });
+  Object.assign(call, { on: true, chatId: c.key, since: Date.now(), muted: false, speaking: false, awaiting: false, queue: [], spoken: new Set(), listener: null, current: null, micFails: 0 });
   speechSynthesis.cancel();
   speechSynthesis.speak(new SpeechSynthesisUtterance("")); // iPhones only allow speech that starts from a tap
   unlockAudio();
@@ -1020,11 +1108,24 @@ function nextTurn() {
   if (call.muted) return setCallMode("idle", "You're muted. Tap Mute to talk.");
   setCallMode("listening", "Listening…");
   $("#call-heard").textContent = "";
-  call.listener = listen((words) => {
+  const l = (call.listener = listen((words) => {
+    call.micFails = 0;
     $("#call-heard").textContent = words;
     clearTimeout(call.quiet);
     call.quiet = setTimeout(finishTurn, 1600); // a short pause means you've finished talking
-  }, micBlocked);
+  }, micBlocked));
+  // Listening stopped by itself — not because you paused or Claude spoke. The screen used to stay on
+  // "Listening…" with the microphone off. Send what it heard, or try again; after three tries, say so.
+  l.done.then((words) => {
+    if (call.listener !== l || !call.on) return;
+    call.listener = null;
+    clearTimeout(call.quiet);
+    if (words) { call.awaiting = true; return sendTurn(words); }
+    if ((call.micFails = (call.micFails || 0) + 1) < 3) return setTimeout(nextTurn, 1000);
+    call.muted = true;
+    $("#call-mute").classList.add("on");
+    setCallMode("idle", "The microphone stopped. Tap Mute to try again.");
+  });
 }
 
 // On a call, Claude's question is read out with its choices; the answer you say goes back as
@@ -1040,7 +1141,10 @@ async function finishTurn() {
   if (!l || !call.on) return;
   call.listener = null;
   call.awaiting = true; // don't start listening again until this has gone to Claude
-  const words = await l.stop();
+  sendTurn(await l.stop());
+}
+
+async function sendTurn(words) {
   if (!call.on) return;
   if (!words) { call.awaiting = false; return nextTurn(); }
   $("#call-heard").textContent = words;
@@ -1123,6 +1227,7 @@ async function resumeCall() {
 $("#call-end").onclick = endCall;
 $("#call-mute").onclick = () => {
   call.muted = !call.muted;
+  call.micFails = 0;
   $("#call-mute").classList.toggle("on", call.muted);
   if (call.muted) pauseCall();
   nextTurn();
