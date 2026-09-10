@@ -7,6 +7,7 @@
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 let input = "";
 for await (const chunk of process.stdin) input += chunk;
@@ -15,7 +16,7 @@ const chatId = process.env.CLAUDE_CHAT_ID; // set only for sessions started by c
 if (!chatId) process.exit(0);
 
 let secret;
-const data = process.env.CLAUDE_CHAT_DATA || path.join(path.dirname(new URL(import.meta.url).pathname), "data");
+const data = process.env.CLAUDE_CHAT_DATA || path.join(path.dirname(fileURLToPath(import.meta.url)), "data");
 try { secret = fs.readFileSync(path.join(data, "secret"), "utf8").trim(); }
 catch { process.exit(0); }
 

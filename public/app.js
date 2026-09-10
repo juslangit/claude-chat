@@ -298,6 +298,7 @@ function route() {
   $("#chat-view").hidden = !id;
   closeSheets();
   if (id) {
+    state.lastStep = null; // the progress bubble only ever shows this chat's steps
     // For the first few seconds the top bar says "tap here for chat info", like WhatsApp.
     state.hintUntil = Date.now() + 3000;
     clearTimeout(route.hint);
