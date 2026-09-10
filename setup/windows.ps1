@@ -46,7 +46,7 @@ $work = Join-Path $env:TEMP "claude-chat-setup"
 New-Item -ItemType Directory -Force $work | Out-Null
 Invoke-WebRequest "$HomeUrl/setup/wsl" -OutFile "$work\wsl.sh" -UseBasicParsing
 # The project list comes from the main Mac here on Windows, where Tailscale's names always work.
-(Invoke-RestMethod "$HomeUrl/api/projects") | Where-Object { $_.remote } | ForEach-Object { "$($_.name) $($_.remote)" } |
+(Invoke-RestMethod "$HomeUrl/api/projects") | Where-Object { $_.remote } | ForEach-Object { "$($_.name)`t$($_.remote)" } |
   Set-Content "$work\projects.txt"
 $wslWork = (wsl.exe -d $distro -e wslpath -a ($work -replace '\\', '/')).Trim()
 wsl.exe -d $distro -e bash "$wslWork/wsl.sh" install "$wslProjects" "$wslWork" "$env:COMPUTERNAME"

@@ -43,9 +43,11 @@ gh auth setup-git
 
 step "Your projects → $PROJECTS"
 mkdir -p "$PROJECTS"
-curl -fsS "$HOME_URL/api/projects" | jq -r '.[] | select(.remote) | "\(.name) \(.remote)"' | while read -r name remote; do
+# Name and address are split by a tab, so a project called "TODAK ACADEMY" stays in one piece.
+curl -fsS "$HOME_URL/api/projects" | jq -r '.[] | select(.remote) | "\(.name)\t\(.remote)"' | while IFS=$'\t' read -r name remote; do
   if [ -d "$PROJECTS/$name/.git" ]; then say "$name — already here"
-  else git clone -q "$remote" "$PROJECTS/$name" && say "$name — copied"; fi
+  elif git clone -q "$remote" "$PROJECTS/$name"; then say "$name — copied"
+  else say "$name — couldn't copy it (see git's message above); carrying on with the rest"; fi
 done
 
 step "claude-chat"
