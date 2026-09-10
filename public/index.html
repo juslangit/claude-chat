@@ -56,6 +56,17 @@
 
   <!-- the stage carries the wallpaper, so it sits still behind the messages and the approval card -->
   <div class="stage">
+    <!-- search inside this chat (Chat info → Search) -->
+    <div id="find" class="find" hidden>
+      <label class="search">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="7" cy="7" r="5"/><path d="m11 11 3.5 3.5"/></svg>
+        <input id="find-input" type="search" placeholder="Search this chat" autocomplete="off" enterkeyhint="search">
+      </label>
+      <span id="find-count" class="find-count"></span>
+      <button id="find-up" class="arrow" aria-label="Earlier match"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 8 5.5l5 5"/></svg></button>
+      <button id="find-down" class="arrow" aria-label="Later match"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5.5 8 10.5l5-5"/></svg></button>
+      <button id="find-done" class="link">Done</button>
+    </div>
     <main id="scroller" class="scroller">
       <div id="messages" class="messages"></div>
       <!-- "typing…", plus what Claude is doing: its latest note and latest step -->
@@ -95,7 +106,16 @@
     <button id="resume">Resume on the Mac</button>
   </div>
 
+  <!-- the message you're replying to (swipe a message to the right) -->
+  <div id="reply-bar" class="reply-bar" hidden>
+    <div class="reply-quote"><b id="reply-who"></b><span id="reply-text"></span></div>
+    <button id="reply-cancel" aria-label="Don't reply to it"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 3l8 8M11 3l-8 8"/></svg></button>
+  </div>
+
   <footer id="composer" class="composer">
+    <!-- + : send a photo, or take one -->
+    <button id="attach" class="attach" aria-label="Send a photo"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
+    <input id="photo-input" type="file" accept="image/*" hidden>
     <div class="field"><textarea id="input" rows="1"></textarea></div>
     <div id="rec-bar" class="rec-bar" hidden><span class="rec-dot"></span><span id="rec-time">0:00</span><span class="rec-cancel">‹ Slide to cancel</span></div>
     <button id="stop" class="round stop" aria-label="Stop Claude" hidden><svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><rect x="1" y="1" width="12" height="12" rx="2.5"/></svg></button>
@@ -133,6 +153,7 @@
     <div class="group">
       <button id="read-all" class="cell">Read all</button>
       <button id="sound-toggle" class="cell">Reply sound<span id="sound-state" class="muted"></span></button>
+      <button id="notify-toggle" class="cell">Notifications<span id="notify-state" class="muted"></span></button>
       <button id="computers-btn" class="cell">Computers<span id="computers-count" class="muted"></span></button>
     </div>
     <button class="btn plain close">Cancel</button>
@@ -153,6 +174,7 @@
       <button id="info-screen" class="tile"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4" width="19" height="13" rx="2"/><path d="M8 21h8M12 17v4M6.5 8.5l2.5 2-2.5 2M11 12.5h3"/></svg><span>Screen</span></button>
       <button id="open-mac" class="tile"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="11" rx="1.5"/><path d="M2 19.5h20"/></svg><span id="open-mac-label">Open on Mac</span></button>
       <button id="rename" class="tile"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13 7 4 4"/></svg><span>Rename</span></button>
+      <button id="info-search" class="tile"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg><span>Search</span></button>
     </div>
     <div class="group">
       <div class="cell"><span>Computer</span><span id="info-computer" class="muted"></span></div>
@@ -161,6 +183,7 @@
       <div class="cell"><span>Replies from Claude</span><span id="info-count" class="muted"></span></div>
     </div>
     <div class="group">
+      <button id="pin-chat" class="cell"><span id="pin-label">Pin chat</span><span class="muted">keeps it at the top</span></button>
       <button id="end-chat" class="cell danger">End chat</button>
     </div>
   </div>
@@ -219,6 +242,22 @@
     <button id="call-skip" class="call-btn"><span class="circle"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M5 5.5v13l9.5-6.5zM16.5 5.5h2.2v13h-2.2z"/></svg></span>Skip</button>
   </div>
 </div>
+
+<!-- a photo you picked, before it's sent: add a caption, then send -->
+<div id="photo-sheet" class="sheet" hidden>
+  <div class="card photo">
+    <div class="grabber"></div>
+    <div class="sheet-nav"><button class="link close">Cancel</button><b>Send photo</b><span></span></div>
+    <img id="photo-preview" alt="The photo you picked">
+    <div class="photo-bar">
+      <input id="photo-caption" placeholder="Add a caption…" autocomplete="off" enterkeyhint="send">
+      <button id="photo-send" class="round send" aria-label="Send the photo"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M3.4 20.4 21.5 12 3.4 3.6l-.01 6.53L15.5 12 3.39 13.87z"/></svg></button>
+    </div>
+  </div>
+</div>
+
+<!-- a photo in the chat, full screen; tap to close -->
+<div id="viewer" class="viewer" hidden><img id="viewer-img" alt="Photo"></div>
 
 <div id="toast" class="toast" hidden></div>
 <script src="/app.js"></script>
