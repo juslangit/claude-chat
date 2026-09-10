@@ -17,6 +17,13 @@ Use Claude Code on the home Mac from your iPhone, like WhatsApp.
   answered or is working on it. Claude's steps (commands, file edits) fold into one "N steps" bubble —
   tap it to see them all.
 
+- **Voice.** Hold 🎤 in the typing bar, talk, and let go to send (slide left to cancel). Or tap 📞 at
+  the top of a chat for a call: you talk, Claude answers out loud in a few short sentences, then it
+  listens again. Speech uses the iPhone's own recognition and voice, like Sky — works in Safari and
+  the Home Screen app.
+- While Claude works, the "typing…" bubble shows its latest progress note and step. Steps read in
+  plain English ("Edited style.css"), with the raw command in small print underneath.
+
 ## How it works, in one picture
 
 ```
@@ -41,10 +48,12 @@ Use Claude Code on the home Mac from your iPhone, like WhatsApp.
 |---|---|
 | `server.mjs` | The middleman on the Mac. Starts chats, sends your messages in, sends replies out. |
 | `hook.mjs` | Claude Code runs this on events; it forwards them and carries back approvals. |
+| `notes.mjs` | Reads Claude's progress notes off the Terminal screen, so the phone can show them while it works. |
 | `public/` | The phone app — `index.html` (layout), `style.css` (look), `app.js` (behaviour). |
 | `bin/cchat` | Type `cchat` in any Mac Terminal to start a chat that also shows on the phone. |
 | `tmux.conf` | Makes the tmux windows look like a plain Terminal. |
 | `install.sh` | One-time setup (start at login, `cchat` command, Tailscale). Safe to re-run. |
+| `setup/` | One-line setup for another Mac (`mac.sh`) or a Windows PC (`windows.ps1` + `wsl.sh`), downloaded from this Mac. |
 | `data/` | Created when it runs: list of chats, the hook password, the log. Not in git. |
 | `dev/` | For testing changes to the phone page: a read-only test copy on port 4478 and iPhone-size screenshots. |
 
@@ -57,11 +66,33 @@ Use Claude Code on the home Mac from your iPhone, like WhatsApp.
 | Keep a chat private to the Mac | Plain `claude`, as before |
 | Stop Claude mid-answer | Red **■** button (same as pressing Esc) |
 | Rename a chat, end it, or open it on the Mac | Tap the chat's name at the top (Chat info) |
+| Talk instead of typing | Hold 🎤, talk, let go. Slide left to cancel |
+| Have a voice call with Claude | Tap 📞 at the top of the chat; the red button hangs up |
+| Send a common reply in one tap | The buttons above the typing bar ("Yes, go ahead", "Explain simpler"…) |
+| Turn the reply sound off | ⋯ on the Chats screen → Reply sound |
 | Bring back a stopped chat (e.g. after a restart) | Open it, tap **Resume on the Mac** |
 | See the server's log | `tail -f ~/Desktop/project/claude-chat/data/server.log` |
 | Restart the server after changing code | `launchctl kickstart -k gui/$(id -u)/com.juslangit.claude-chat` |
 
 Running chats are not affected by restarting the server — they live in tmux.
+
+## More than one computer
+
+The iPhone app shows the chats of every computer running claude-chat on your Tailscale network, each
+labelled with its computer, and **+** asks which computer to start on (⋯ → Computers lists them).
+To add a computer:
+
+1. Install Tailscale on it and sign in with the same account as your iPhone.
+2. Paste one line — it installs everything, copies your projects from GitHub, and pairs Syncthing:
+   - another Mac, in Terminal: `curl -fsSL https://luqman-mac.tail8806f8.ts.net/setup/mac | bash`
+   - a Windows PC, in PowerShell: `irm https://luqman-mac.tail8806f8.ts.net/setup/windows | iex`
+     (Claude Code runs in WSL, Windows' built-in Linux; projects stay in `Desktop\project`)
+3. Log in to Claude Code there once and trust the project folder, as the script says at the end.
+
+Projects move between computers through **GitHub**: when a chat starts in a project, the app first
+fetches the newest version (as long as nothing is unsaved on that computer). When you stop on one
+computer, ask Claude to save your work to GitHub. Your Claude notes (`~/.claude/knowledge`) stay the
+same everywhere through **Syncthing**.
 
 ## Setup (already done on this Mac)
 
