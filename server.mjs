@@ -87,7 +87,7 @@ function summary(c) {
     status: r.alive ? r.status : "ended",
     lastText: r.lastText, lastAt: r.lastAt || c.createdAt, count: r.count,
     note: r.status === "working" || r.status === "approval" ? r.note || null : null, // Claude's latest progress note
-    pending: r.pending && { reqId: r.pending.reqId, tool: r.pending.tool, detail: r.pending.detail, why: r.pending.why },
+    pending: r.pending && { reqId: r.pending.reqId, tool: r.pending.tool, detail: r.pending.detail, why: r.pending.why, questions: r.pending.questions },
   };
 }
 
@@ -128,6 +128,16 @@ function describeTool(name, input = {}) {
   }
 }
 
+// Claude's multiple-choice questions (the AskUserQuestion tool) show as a message from Claude, and
+// what you picked — on the phone or at the computer — as your reply.
+function questionText(input) {
+  return input.questions.map((q) => `**${q.question}**` + (q.options?.length ? `\n${q.options.map((o) => o.label).join(" · ")}` : "")).join("\n\n");
+}
+function answerText(answers) {
+  const all = Object.entries(answers || {});
+  return all.length === 1 ? String(all[0][1]) : all.map(([q, a]) => `${q} → ${a}`).join("\n");
+}
+
 // One transcript line → zero or more chat bubbles.
 function toMessages(o) {
   if (o.isMeta || o.isSidechain || (o.type !== "user" && o.type !== "assistant")) return [];
@@ -146,9 +156,14 @@ function toMessages(o) {
       if (text.startsWith("[Request interrupted")) return out.push({ id, role: "system", text: "Stopped", at });
       if (/^<[a-z-]+>/.test(text)) return; // Claude Code's own bookkeeping, not something you typed
       out.push({ id, role: "user", text, at });
+    } else if (b.type === "tool_use" && b.name === "AskUserQuestion" && b.input?.questions?.length) {
+      out.push({ id, role: "assistant", ask: true, text: questionText(b.input), at });
     } else if (b.type === "tool_use") {
       const step = describeTool(b.name, b.input);
       out.push({ id, role: "tool", text: step.text, ...(step.detail && step.detail !== step.text && { detail: step.detail }), at });
+    } else if (b.type === "tool_result" && !b.is_error && o.toolUseResult?.questions && o.toolUseResult?.answers) {
+      const text = answerText(o.toolUseResult.answers);
+      if (text) out.push({ id, role: "user", text, at });
     } else if (b.type === "tool_result" && b.is_error) {
       const t = typeof b.content === "string" ? b.content : (b.content || []).map((x) => x.text || "").join(" ");
       out.push({ id, role: "tool", error: true, text: t.trim().split("\n")[0].slice(0, 200), at });
@@ -445,11 +460,21 @@ const queue = (r, fn) => (r.chain = (r.chain || Promise.resolve()).catch(() => {
 function askPhone(c, ev, res) {
   const r = rt(c.id);
   resolvePending(c.id, null);
+  const input = ev.tool_input || {};
   const p = {
-    reqId: crypto.randomUUID(), tool: ev.tool_name, res,
-    detail: ev.tool_name === "Bash" ? ev.tool_input?.command : describeTool(ev.tool_name, ev.tool_input).text,
-    why: ev.tool_input?.description || "",
+    reqId: crypto.randomUUID(), tool: ev.tool_name, res, input,
+    detail: ev.tool_name === "Bash" ? input.command : describeTool(ev.tool_name, input).text,
+    why: input.description || "",
   };
+  // One of Claude's multiple-choice questions: the phone shows the choices as buttons, and the
+  // answers go back through POST /answer.
+  if (ev.tool_name === "AskUserQuestion" && Array.isArray(input.questions) && input.questions.length) {
+    p.questions = input.questions.map((q) => ({
+      question: String(q.question || ""), header: String(q.header || ""), multiSelect: !!q.multiSelect,
+      options: (q.options || []).map((o) => ({ label: String(o.label || ""), description: String(o.description || "") })),
+    }));
+    p.detail = p.questions[0].question;
+  }
   r.pending = p;
   r.status = "approval";
   const timer = setTimeout(() => resolvePending(c.id, null, p.reqId), APPROVAL_WAIT_MS);
@@ -464,13 +489,14 @@ function askPhone(c, ev, res) {
   chatChanged(c.id);
 }
 
-// behavior: "allow" | "deny" | null (null = no answer; the Terminal's own prompt stays up)
-function resolvePending(id, behavior, reqId) {
+// answer: { behavior: "allow" | "deny", updatedInput?, message? } for hook.mjs, or null for no
+// answer (the Terminal's own prompt stays up)
+function resolvePending(id, answer, reqId) {
   const r = rt(id), p = r.pending;
   if (!p || (reqId && p.reqId !== reqId)) return false;
   r.pending = null;
   r.status = "working";
-  if (!p.res.writableEnded) json(p.res, behavior ? { behavior } : {});
+  if (!p.res.writableEnded) json(p.res, answer || {});
   chatChanged(id);
   return true;
 }
@@ -552,7 +578,7 @@ async function api(req, res, url) {
       const text = String((await body(req)).text || "").trim();
       if (!text) throw fail("Nothing to send.");
       if (!r.alive) throw fail("This chat's Claude has stopped. Tap Resume first.", 409);
-      if (r.pending) throw fail("Claude is waiting for your approval first.", 409);
+      if (r.pending) throw fail(r.pending.questions ? "Claude asked you a question first. Answer it above." : "Claude is waiting for your approval first.", 409);
       await queue(r, () => sendText(c, text));
       return json(res, { ok: true });
     }
@@ -569,7 +595,25 @@ async function api(req, res, url) {
       return json(res, { text: await tmux("capture-pane", "-p", "-t", c.tmux) });
     case "POST approve": {
       const b = await body(req);
-      if (!resolvePending(id, b.decision === "allow" ? "allow" : "deny", b.reqId)) throw fail("That request was already answered.", 409);
+      const allow = b.decision === "allow", question = r.pending?.reqId === b.reqId && r.pending.questions;
+      // A question needs an answer (POST answer), not an OK. Denying one skips it.
+      if (allow && question) throw fail("Pick an answer to Claude's question first.", 409);
+      const answer = allow ? { behavior: "allow" } : { behavior: "deny", ...(question && { message: "Luqman skipped this question from his phone." }) };
+      if (!resolvePending(id, answer, b.reqId)) throw fail("That request was already answered.", 409);
+      return json(res, { ok: true });
+    }
+    case "POST answer": {
+      // { reqId, answers: { "<question>": "<answer>" } } — Claude Code wants the answers keyed by the
+      // question's words; several picks from one question are joined with ", ".
+      const b = await body(req), p = r.pending;
+      if (!p?.questions || p.reqId !== b.reqId) throw fail("That question was already answered.", 409);
+      const answers = {};
+      for (const q of p.questions) {
+        const a = String(b.answers?.[q.question] ?? "").trim().slice(0, 2000);
+        if (!a) throw fail(`No answer for “${q.question}”.`);
+        answers[q.question] = a;
+      }
+      resolvePending(id, { behavior: "allow", updatedInput: { ...p.input, answers } }, b.reqId);
       return json(res, { ok: true });
     }
     case "POST terminal":
