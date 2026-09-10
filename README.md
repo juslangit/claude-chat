@@ -83,16 +83,21 @@ labelled with its computer, and **+** asks which computer to start on (⋯ → C
 To add a computer:
 
 1. Install Tailscale on it and sign in with the same account as your iPhone.
-2. Paste one line — it installs everything, copies your projects from GitHub, and pairs Syncthing:
+2. On the iPhone: Chats → ⋯ → Computers → **Add a computer**. It shows the line to paste and a
+   one-time pairing code (works once, for 30 minutes).
+3. Paste the line on the new computer — it installs everything, copies your projects from GitHub,
+   and asks for the code:
    - another Mac, in Terminal: `curl -fsSL https://luqman-mac.tail8806f8.ts.net/setup/mac | bash`
    - a Windows PC, in PowerShell: `irm https://luqman-mac.tail8806f8.ts.net/setup/windows | iex`
      (Claude Code runs in WSL, Windows' built-in Linux; projects stay in `Desktop\project`)
-3. Log in to Claude Code there once and trust the project folder, as the script says at the end.
+4. Log in to Claude Code there once and trust the project folder, as the script says at the end.
 
 Projects move between computers through **GitHub**: when a chat starts in a project, the app first
 fetches the newest version (as long as nothing is unsaved on that computer). When you stop on one
-computer, ask Claude to save your work to GitHub. Your Claude notes (`~/.claude/knowledge`) stay the
-same everywhere through **Syncthing**.
+computer, ask Claude to save your work to GitHub. Your Claude setup — instructions (`CLAUDE.md`),
+settings, keys (`.env`), the Sky AI Brain memory tool and your notes — stays the same everywhere
+through **Syncthing**. Only those parts of `~/.claude` are shared (the list is in `~/.claude/.stignore`);
+chat history stays on each computer.
 
 ## Setup (already done on this Mac)
 

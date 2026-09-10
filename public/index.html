@@ -167,6 +167,17 @@
     <div class="grabber"></div>
     <div class="sheet-nav"><span></span><b>Computers</b><button class="link right close">Done</button></div>
     <div id="computer-list" class="group"></div>
+    <button id="add-computer" class="btn plain">Add a computer</button>
+    <div id="add-box" class="add-box" hidden>
+      <p>1. On the new computer, install Tailscale and sign in with the same account as this iPhone.</p>
+      <p>2. Paste this line — on a <b>Mac</b>, in Terminal:</p>
+      <code id="add-mac" class="line"></code>
+      <p>or on a <b>Windows PC</b>, in PowerShell:</p>
+      <code id="add-windows" class="line"></code>
+      <p>3. When it asks for the pairing code, type:</p>
+      <div id="add-code" class="code"></div>
+      <p class="muted">Works once, for 30 minutes. It lets that computer receive your Claude setup, keys included.</p>
+    </div>
     <p class="sheet-note">A computer shows up here by itself once claude-chat is installed on it and it's signed in to the same Tailscale account.</p>
   </div>
 </div>
