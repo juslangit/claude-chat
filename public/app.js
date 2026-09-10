@@ -655,7 +655,18 @@ $("#new-sheet").addEventListener("click", async (e) => {
 });
 
 $("#list-more").onclick = () => openSheet("#list-menu");
-$("#computers-btn").onclick = () => { openSheet("#computers"); renderComputers(); findComputers(); };
+$("#computers-btn").onclick = () => { openSheet("#computers"); $("#add-box").hidden = true; renderComputers(); findComputers(); };
+// Add a computer: the lines to paste on it, and a one-time pairing code it asks for (it will
+// receive your Claude setup, keys included, so it has to be you at that computer).
+$("#add-computer").onclick = async () => {
+  try {
+    const r = await api("/api/sync/code", { body: {} });
+    $("#add-mac").textContent = r.mac;
+    $("#add-windows").textContent = r.windows;
+    $("#add-code").textContent = r.code.replace(/(\d{3})(\d{3})/, "$1 $2");
+    $("#add-box").hidden = false;
+  } catch (e) { toast(e.message); }
+};
 $("#read-all").onclick = () => {
   for (const c of state.chats.values()) state.seen[c.id] = c.count;
   write("seen", state.seen);

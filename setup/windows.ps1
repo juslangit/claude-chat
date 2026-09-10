@@ -52,12 +52,23 @@ $wslWork = (wsl.exe -d $distro -e wslpath -a ($work -replace '\\', '/')).Trim()
 wsl.exe -d $distro -e bash "$wslWork/wsl.sh" install "$wslProjects" "$wslWork" "$env:COMPUTERNAME"
 if ($LASTEXITCODE -ne 0) { Say "The Linux half stopped with an error (see above). Fix it, then run this again."; return }
 
-Step "Pairing Syncthing with the main Mac"
+Step "Your Claude setup: instructions, settings, keys, memory tool, notes (Syncthing)"
 $myId = (Get-Content "$work\sync-id.txt").Trim()
-$pair = Invoke-RestMethod "$HomeUrl/api/sync/pair" -Method Post -ContentType "application/json" `
-  -Body (@{ id = $myId; name = $env:COMPUTERNAME } | ConvertTo-Json)
-wsl.exe -d $distro -e bash "$wslWork/wsl.sh" pair $pair.id
-Say "Paired."
+if ($myId -eq "PAIRED") {
+  Say "Already paired with the main Mac."
+} else {
+  $code = Read-Host "    Pairing code from your iPhone (Chats -> ... -> Computers -> Add a computer)"
+  try {
+    $pair = Invoke-RestMethod "$HomeUrl/api/sync/pair" -Method Post -ContentType "application/json" `
+      -Body (@{ id = $myId; name = $env:COMPUTERNAME; code = $code } | ConvertTo-Json)
+  } catch {
+    Say "Pairing didn't work: $($_.ErrorDetails.Message)"
+    Say "Get a new code on your iPhone and run this again."
+    return
+  }
+  wsl.exe -d $distro -e bash "$wslWork/wsl.sh" pair $pair.id
+  Say "Paired. Your setup arrives from the main Mac within a minute or two."
+}
 
 Step "Start claude-chat whenever you log in"
 $action = New-ScheduledTaskAction -Execute "conhost.exe" -Argument "--headless wsl.exe -d $distro -e bash -lc ~/.claude-chat/start.sh"

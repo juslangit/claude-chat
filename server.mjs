@@ -301,17 +301,43 @@ function gitRemote(dir) {
   catch { return null; }
 }
 
-// Syncthing keeps your Claude notes (~/.claude/knowledge) the same on every computer. A new
-// computer's setup script sends its Syncthing ID here; this computer adds it and shares the folder.
+// Syncthing keeps your Claude setup the same on every computer. The shared folder "claude-home" is
+// ~/.claude, cut down by its .stignore to CLAUDE.md, settings.json, the keys (.env), the Sky AI
+// Brain tool and the notes (D-014). Because keys travel, a new computer may only pair with a
+// one-time code shown on your iPhone (⋯ → Computers → Add a computer), good for 30 minutes.
 const SYNCTHING = ["/opt/homebrew/bin/syncthing", "/usr/local/bin/syncthing", "/usr/bin/syncthing"].find((p) => fs.existsSync(p));
-async function pairSync({ id, name } = {}) {
+let pairCode = null; // { code, expires }
+
+// Which kind of device sent a request. tailscale serve adds the caller's tailnet address to
+// X-Forwarded-For (the last entry is the one it added); requests made on this computer have none.
+async function callerOs(req) {
+  const ip = String(req.headers["x-forwarded-for"] || "").split(",").pop().trim();
+  if (!ip) return "local";
+  const peer = Object.values((await tailnetStatus())?.Peer || {}).find((p) => (p.TailscaleIPs || []).includes(ip));
+  return peer?.OS || "unknown";
+}
+
+async function newPairCode(req) {
+  const from = await callerOs(req);
+  console.log(`pairing code asked for by: ${from}`);
+  if (!(from === "local" || /^(ios|android)$/i.test(from))) throw fail("Pairing codes can only be made on your phone.", 403);
+  pairCode = { code: String(crypto.randomInt(100000, 1000000)), expires: Date.now() + 30 * 60 * 1000 };
+  if (!SELF_URL) await otherComputers();
+  return { code: pairCode.code, expires: pairCode.expires, mac: `curl -fsSL ${SELF_URL}/setup/mac | bash`, windows: `irm ${SELF_URL}/setup/windows | iex` };
+}
+
+async function pairSync({ id, name, code } = {}) {
   if (!SYNCTHING) throw fail("Syncthing isn't installed on this computer.", 409);
+  if (!pairCode || String(code || "").replace(/\s/g, "") !== pairCode.code || Date.now() > pairCode.expires) {
+    throw fail("That pairing code is wrong or has run out. Get a new one on your iPhone: Chats → ⋯ → Computers → Add a computer.", 403);
+  }
   if (!/^[A-Z2-7]{7}(-[A-Z2-7]{7}){7}$/.test(String(id))) throw fail("That isn't a Syncthing ID.");
+  pairCode = null; // each code works once
   const st = (...args) => run(SYNCTHING, ["cli", "config", ...args], { timeout: 15000 });
   const has = async (...args) => (await st(...args, "list")).stdout.includes(id);
   if (!(await has("devices"))) await st("devices", "add", "--device-id", id, "--name", String(name || "Another computer").slice(0, 60));
-  if (!(await has("folders", "claude-knowledge", "devices"))) await st("folders", "claude-knowledge", "devices", "add", "--device-id", id);
-  return { id: (await run(SYNCTHING, ["device-id"])).stdout.trim(), folder: "claude-knowledge" };
+  if (!(await has("folders", "claude-home", "devices"))) await st("folders", "claude-home", "devices", "add", "--device-id", id);
+  return { id: (await run(SYNCTHING, ["device-id"])).stdout.trim(), folder: "claude-home" };
 }
 
 // A project name from the phone → its folder. Only folders directly inside WORKDIR are allowed.
@@ -480,6 +506,7 @@ async function api(req, res, url) {
   if (url.pathname === "/api/projects" && req.method === "GET") return json(res, listProjects());
   if (url.pathname === "/api/whoami") return json(res, { name: COMPUTER, os: OS, url: SELF_URL });
   if (url.pathname === "/api/computers") return json(res, await otherComputers());
+  if (url.pathname === "/api/sync/code" && req.method === "POST") return json(res, await newPairCode(req));
   if (url.pathname === "/api/sync/pair" && req.method === "POST") return json(res, await pairSync(await body(req)));
   const m = url.pathname.match(/^\/api\/chats(?:\/([\w-]+))?(?:\/(\w+))?$/);
   if (!m) throw fail("Not found", 404);
