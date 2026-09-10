@@ -16,7 +16,16 @@ const state = {
   projects: null,                // project folders for New chat, once loaded
   sound: read("sound", true),    // the pop when Claude answers
   lastStep: null,                // the open chat's latest step, for the "typing…" bubble
+  computers: [],                 // every computer running claude-chat that this phone can reach
 };
+// Chats from every computer share one list. A chat's key is "<computer>/<chat id>"; "home" is the
+// computer this page came from.
+const home = { id: "home", base: "", name: "", online: false };
+state.computers.push(home);
+const keyOf = (comp, id) => `${comp.id}/${id}`;
+const tag = (comp, c) => ({ ...c, key: keyOf(comp, c.id), comp: comp.id });
+const compOf = (c) => state.computers.find((x) => x.id === c?.comp) || home;
+const cur = () => state.chats.get(state.current);
 // What the top of a chat says under its name. "online" means Claude is running and waiting for you.
 const STATUS = { starting: "starting…", working: "typing…", approval: "needs your approval", idle: "online" };
 const isWorking = (c) => c?.status === "working" || c?.status === "starting";
@@ -44,11 +53,13 @@ const ICON = {
   phone: `<svg class="voice" viewBox="0 0 24 24" fill="currentColor"><path d="M5 3.5h3.2l1.6 4-2.1 1.5a11 11 0 0 0 7.3 7.3l1.5-2.1 4 1.6V19a1.8 1.8 0 0 1-1.9 1.8C10.3 20.3 3.7 13.7 3.2 5.4A1.8 1.8 0 0 1 5 3.5z"/></svg>`,
 };
 
-async function api(path, { method, body } = {}) {
-  const res = await fetch(path, {
+// Talk to a computer's server (this one unless another is given).
+async function api(path, { method, body, timeout } = {}, comp = home) {
+  const res = await fetch(comp.base + path, {
     method: method || (body ? "POST" : "GET"),
     headers: { "content-type": "application/json" },
     body: body && JSON.stringify(body),
+    signal: timeout ? AbortSignal.timeout(timeout) : undefined,
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `Something went wrong (${res.status})`);
@@ -65,13 +76,15 @@ function toast(text) {
 
 // ── live connection to the Mac ─────────────────────────────────────────────
 
-let source;
-function connect() {
-  source?.close();
-  source = new EventSource("/events");
-  source.onopen = () => { setOnline(true); refresh(); };
-  source.onerror = () => setOnline(false);
-  source.onmessage = (e) => onEvent(JSON.parse(e.data));
+// A chat's own requests go to the computer it runs on.
+const chatApi = (c, sub, opts) => api(`/api/chats/${c.id}${sub}`, opts, compOf(c));
+
+function connect(comp) {
+  comp.source?.close();
+  comp.source = new EventSource(`${comp.base}/events`);
+  comp.source.onopen = () => { comp.online = true; if (comp === home) setOnline(true); refreshComputer(comp); };
+  comp.source.onerror = () => { comp.online = false; if (comp === home) setOnline(false); renderList(); };
+  comp.source.onmessage = (e) => onEvent(JSON.parse(e.data), comp);
 }
 // Like WhatsApp: when the phone can't reach the Mac, the title says "Connecting…".
 function setOnline(on) {
@@ -84,52 +97,104 @@ function setOnline(on) {
 // iPhones pause pages in the background; catch up when you come back.
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState !== "visible") return pauseCall();
-  if (!source || source.readyState === EventSource.CLOSED) connect(); else refresh();
+  for (const comp of state.computers) {
+    if (!comp.source || comp.source.readyState === EventSource.CLOSED) connect(comp); else refreshComputer(comp);
+  }
+  findComputers();
   resumeCall();
 });
 
-function onEvent(ev) {
+function onEvent(ev, comp = home) {
   if (ev.type === "chat") {
-    const old = state.chats.get(ev.chat.id), c = ev.chat;
-    state.chats.set(c.id, c);
-    if (old && !(call.on && call.chatId === c.id)) { // on a call you hear the reply instead
+    const c = tag(comp, ev.chat), old = state.chats.get(c.key);
+    state.chats.set(c.key, c);
+    if (old && !(call.on && call.chatId === c.key)) { // on a call you hear the reply instead
       if (c.count > old.count) pop();
       else if (c.pending && !old.pending) pop("alert");
     }
-    if (c.id === state.current && isWorking(c) && !isWorking(old)) state.lastStep = null; // a new turn
+    if (c.key === state.current && isWorking(c) && !isWorking(old)) state.lastStep = null; // a new turn
     renderList();
-    if (c.id === state.current) renderChatChrome();
+    if (c.key === state.current) renderChatChrome();
     callChatChanged(old, c);
   } else if (ev.type === "note") {
-    if (call.on && ev.chatId === call.chatId) sayOnce(ev.text);
+    if (call.on && keyOf(comp, ev.chatId) === call.chatId) sayOnce(ev.text);
   } else if (ev.type === "removed") {
-    state.chats.delete(ev.id);
-    state.messages.delete(ev.id);
-    if (state.current === ev.id) location.hash = "";
+    const key = keyOf(comp, ev.id);
+    state.chats.delete(key);
+    state.messages.delete(key);
+    if (state.current === key) location.hash = "";
     renderList();
   } else if (ev.type === "messages") {
-    const list = state.messages.get(ev.chatId);
+    const key = keyOf(comp, ev.chatId);
+    const list = state.messages.get(key);
     if (!list) return;
-    const known = new Set(list.map((m) => m.id));
-    const fresh = ev.messages.filter((m) => !known.has(m.id));
+    const seen = new Set(list.map((m) => m.id));
+    const fresh = ev.messages.filter((m) => !seen.has(m.id));
     list.push(...fresh);
-    if (ev.chatId === state.current) appendMessages(fresh);
-    if (call.on && ev.chatId === call.chatId) {
+    if (key === state.current) appendMessages(fresh);
+    if (call.on && key === call.chatId) {
       for (const m of fresh) if (m.role === "assistant" && m.at >= call.since - 5000) { call.awaiting = false; sayOnce(m.text); }
     }
   } else if (ev.type === "reset") {
-    state.messages.delete(ev.chatId);
-    if (ev.chatId === state.current) loadMessages(ev.chatId);
+    const key = keyOf(comp, ev.chatId);
+    state.messages.delete(key);
+    if (key === state.current) loadMessages(key);
   }
 }
 
-async function refresh() {
+// Fetch one computer's chats again, replacing what the list had for it.
+async function refreshComputer(comp) {
   try {
-    const list = await api("/api/chats");
-    state.chats = new Map(list.map((c) => [c.id, c]));
+    const list = await api("/api/chats", {}, comp);
+    for (const [key, c] of state.chats) if (c.comp === comp.id) state.chats.delete(key);
+    for (const c of list) state.chats.set(keyOf(comp, c.id), tag(comp, c));
     renderList();
-    if (state.current) { renderChatChrome(); await loadMessages(state.current); }
-  } catch (e) { toast(e.message); }
+    if (cur()?.comp === comp.id) { renderChatChrome(); await loadMessages(state.current); }
+  } catch (e) { if (comp === home) toast(e.message); }
+}
+
+// ── the other computers ────────────────────────────────────────────────────
+// This computer lists the others it can see on your Tailscale network; each one that answers
+// /api/whoami is running claude-chat, and its chats join the list. Ones found before are
+// remembered, so they're tried even if this computer can't see them right now.
+async function startComputers() {
+  connect(home);
+  try { Object.assign(home, await api("/api/whoami")); } catch {}
+  renderComputers();
+  findComputers();
+  setInterval(findComputers, 120000);
+}
+async function findComputers() {
+  let urls = [];
+  try { urls = (await api("/api/computers")).map((p) => p.url); } catch {}
+  for (const k of read("computers", [])) if (!urls.includes(k)) urls.push(k);
+  await Promise.all(urls.map(addComputer));
+  renderComputers();
+}
+async function addComputer(base) {
+  if (!base || base === home.url || state.computers.some((c) => c.base === base)) return;
+  try {
+    const who = await api("/api/whoami", { timeout: 4000 }, { base });
+    if (who.url && who.url === home.url) return; // this computer, reached by another address
+    const comp = { id: new URL(base).host.replace(/[^\w]/g, "-"), base, name: who.name, os: who.os, online: false };
+    state.computers.push(comp);
+    write("computers", state.computers.filter((c) => c.base).map((c) => c.base));
+    connect(comp);
+  } catch {} // not running claude-chat, or switched off right now
+}
+
+// Which computer a chat is on, shown in the list once there's more than one.
+function whereLabel(c) {
+  if (state.computers.length < 2) return "";
+  const comp = compOf(c);
+  return `<span class="where">${esc(comp.name || "This computer")}${comp.online ? "" : " (offline)"}</span> · `;
+}
+
+function renderComputers() {
+  $("#computers-count").textContent = state.computers.filter((c) => c.online).length;
+  $("#computer-list").innerHTML = state.computers.map((c) => `<div class="cell computer">
+      <span class="pick-text"><b>${esc(c.name || "This computer")}</b><small>${c === home ? "This app comes from here" : c.os === "windows" ? "Windows PC" : c.os === "mac" ? "Mac" : "Computer"}</small></span>
+      <span class="state ${c.online ? "on" : ""}">${c.online ? "online" : "offline"}</span></div>`).join("");
 }
 
 // ── chat list ──────────────────────────────────────────────────────────────
@@ -196,7 +261,8 @@ function rowHtml(c) {
     preview = text.startsWith("You: ") ? ICON.ticks + esc(text.slice(5)) : esc(text || "No messages yet");
     if (c.status === "ended") preview = `Stopped · ${preview}`;
   }
-  return `<button class="row${unread ? " unread" : ""}" data-id="${c.id}">${avatar(c)}
+  preview = whereLabel(c) + preview;
+  return `<button class="row${unread ? " unread" : ""}" data-id="${c.key}">${avatar(c)}
     <div class="meta">
       <div class="top"><span class="name">${esc(c.name)}</span><span class="time">${when(c.lastAt)}</span></div>
       <div class="bottom"><span class="ptext">${preview}</span>${badge}</div>
@@ -225,7 +291,8 @@ listScroll.addEventListener("scroll", () => $("#list-nav").classList.toggle("scr
 function route() {
   endCall(); // leaving a chat hangs up
   saveDraft();
-  const id = location.hash.match(/^#chat\/([\w-]+)/)?.[1] || null;
+  const m = location.hash.match(/^#chat\/(?:([\w-]+)\/)?([\w-]+)/); // #chat/<computer>/<chat>, or an old #chat/<chat>
+  const id = m ? `${m[1] || "home"}/${m[2]}` : null;
   state.current = id;
   $("#list-view").hidden = !!id;
   $("#chat-view").hidden = !id;
@@ -315,15 +382,16 @@ function markSeen(c) {
 }
 
 async function loadMessages(id) {
+  const c = state.chats.get(id);
+  if (!c) return; // its computer hasn't answered yet; refreshComputer calls this again when it does
   try {
-    const msgs = await api(`/api/chats/${id}/messages`);
+    const msgs = await chatApi(c, "/messages");
     state.messages.set(id, msgs);
     if (state.current !== id) return;
     resetGroups();
     $("#messages").innerHTML = "";
     addMessages(msgs);
-    const c = state.chats.get(id);
-    if (c && (c.status === "working" || c.status === "approval")) markAllRead();
+    if (c.status === "working" || c.status === "approval") markAllRead();
     scrollDown();
   } catch (e) { toast(e.message); }
 }
@@ -489,20 +557,20 @@ async function send() {
   }
 }
 
-const pressKey = (key) => api(`/api/chats/${state.current}/key`, { body: { key } }).catch((e) => toast(e.message));
+const pressKey = (key) => chatApi(cur(), "/key", { body: { key } }).catch((e) => toast(e.message));
 $("#stop").onclick = () => pressKey("esc");
 
 async function answer(decision) {
   const reqId = $("#approval").dataset.req;
   for (const b of ["#approve", "#deny"]) $(b).disabled = true;
-  try { await api(`/api/chats/${state.current}/approve`, { body: { decision, reqId } }); }
+  try { await chatApi(cur(), "/approve", { body: { decision, reqId } }); }
   catch (e) { toast(e.message); }
   finally { for (const b of ["#approve", "#deny"]) $(b).disabled = false; }
 }
 $("#approve").onclick = () => answer("allow");
 $("#deny").onclick = () => answer("deny");
 
-$("#resume").onclick = () => api(`/api/chats/${state.current}/resume`, { body: {} }).catch((e) => toast(e.message));
+$("#resume").onclick = () => chatApi(cur(), "/resume", { body: {} }).catch((e) => toast(e.message));
 
 // ── sheets: new chat, list menu, chat info, Mac screen ─────────────────────
 
@@ -513,13 +581,39 @@ for (const s of document.querySelectorAll(".sheet")) {
 }
 
 // New chat lists your projects like WhatsApp lists contacts. Tap one and Claude starts in that folder.
-$("#new-chat").onclick = async () => {
+// With more than one computer, the chips at the top pick which computer it starts on.
+let newOn = home;
+$("#new-chat").onclick = () => {
   openSheet("#new-sheet");
   $("#new-search").value = "";
-  renderProjects();
-  try { state.projects = await api("/api/projects"); renderProjects(); } catch (e) { toast(e.message); }
+  newOn = state.computers.find((c) => c.id === read("newOn", "home") && c.online) || home;
+  renderNewComputers();
+  loadProjects();
 };
 $("#new-search").addEventListener("input", renderProjects);
+function renderNewComputers() {
+  const online = state.computers.filter((c) => c.online);
+  $("#new-computers").hidden = online.length < 2;
+  $("#new-computers").innerHTML = online.map((c) => `<button class="chip${c === newOn ? " on" : ""}" data-comp="${c.id}">${esc(c.name || "This computer")}</button>`).join("");
+  $("#projects-title").textContent = online.length < 2 ? "Your projects" : `Projects on ${newOn.name || "this computer"}`;
+}
+$("#new-computers").addEventListener("click", (e) => {
+  const comp = state.computers.find((c) => c.id === e.target.closest(".chip")?.dataset.comp);
+  if (!comp) return;
+  newOn = comp;
+  write("newOn", comp.id);
+  renderNewComputers();
+  loadProjects();
+});
+async function loadProjects() {
+  const comp = newOn;
+  state.projects = null;
+  renderProjects();
+  try {
+    const list = await api("/api/projects", {}, comp);
+    if (comp === newOn) { state.projects = list; renderProjects(); }
+  } catch (e) { toast(e.message); }
+}
 
 function renderProjects() {
   const box = $("#project-list");
@@ -529,7 +623,7 @@ function renderProjects() {
   box.innerHTML = list.length ? list.map(projectRow).join("") : `<div class="cell muted">No projects match</div>`;
 }
 function projectRow(p) {
-  const open = [...state.chats.values()].filter((c) => c.project === p.name && c.status !== "ended").length;
+  const open = [...state.chats.values()].filter((c) => c.comp === newOn.id && c.project === p.name && c.status !== "ended").length;
   const note = `${open ? `${open} open chat${open > 1 ? "s" : ""} · ` : ""}changed ${ago(p.changedAt)}`;
   return `<button class="cell pick" data-project="${esc(p.name)}">${avatar({ id: p.name, name: p.name }, "small")}
     <span class="pick-text"><b>${esc(p.name)}</b><small>${note}</small></span></button>`;
@@ -549,9 +643,9 @@ $("#new-sheet").addEventListener("click", async (e) => {
   starting = true;
   pick.classList.add("busy");
   try {
-    const c = await api("/api/chats", { body: { project: pick.dataset.project || undefined } });
-    state.chats.set(c.id, c);
-    location.hash = `chat/${c.id}`;
+    const c = tag(newOn, await api("/api/chats", { body: { project: pick.dataset.project || undefined } }, newOn));
+    state.chats.set(c.key, c);
+    location.hash = `chat/${c.key}`;
   } catch (err) {
     toast(err.message);
   } finally {
@@ -561,6 +655,7 @@ $("#new-sheet").addEventListener("click", async (e) => {
 });
 
 $("#list-more").onclick = () => openSheet("#list-menu");
+$("#computers-btn").onclick = () => { openSheet("#computers"); renderComputers(); findComputers(); };
 $("#read-all").onclick = () => {
   for (const c of state.chats.values()) state.seen[c.id] = c.count;
   write("seen", state.seen);
@@ -576,6 +671,8 @@ function fillInfo(c) {
   $("#info-name").textContent = c.name;
   $("#info-sub").textContent = `Claude Code on your Mac · ${c.status === "ended" ? "stopped" : "running"}`;
   $("#info-folder").textContent = c.project || "Whole project folder";
+  $("#info-computer").textContent = compOf(c).name || "This computer";
+  $("#open-mac-label").textContent = compOf(c).os === "windows" ? "Open on PC" : "Open on Mac";
   $("#info-started").textContent = new Date(c.createdAt).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
   $("#info-count").textContent = c.count;
   $("#open-mac").disabled = c.status === "ended";
@@ -583,19 +680,19 @@ function fillInfo(c) {
 $("#info-screen").onclick = () => { openSheet("#screen"); pollScreen(); };
 $("#open-mac").onclick = async () => {
   closeSheets();
-  try { await api(`/api/chats/${state.current}/terminal`, { body: {} }); toast("Opened in a Terminal window on the Mac."); }
+  try { await chatApi(cur(), "/terminal", { body: {} }); toast(`Opened in a Terminal window on ${compOf(cur()).name || "the computer"}.`); }
   catch (e) { toast(e.message); }
 };
 $("#rename").onclick = async () => {
   closeSheets();
   const c = state.chats.get(state.current);
   const name = prompt("Chat name", c?.name || "");
-  if (name?.trim()) await api(`/api/chats/${state.current}`, { method: "PATCH", body: { name } }).catch((e) => toast(e.message));
+  if (name?.trim()) await chatApi(c, "", { method: "PATCH", body: { name } }).catch((e) => toast(e.message));
 };
 $("#end-chat").onclick = async () => {
   closeSheets();
   if (!confirm("End this chat?\n\nClaude stops and the chat leaves this list. Anything it made stays in your project folder.")) return;
-  try { await api(`/api/chats/${state.current}`, { method: "DELETE" }); location.hash = ""; }
+  try { await chatApi(cur(), "", { method: "DELETE" }); location.hash = ""; }
   catch (e) { toast(e.message); }
 };
 
@@ -606,7 +703,7 @@ async function pollScreen() {
   clearTimeout(screenTimer);
   if ($("#screen").hidden || !state.current) return;
   try {
-    const { text } = await api(`/api/chats/${state.current}/screen`);
+    const { text } = await chatApi(cur(), "/screen");
     const pre = $("#screen-text");
     pre.textContent = text.replace(/\s+$/, "");
     pre.scrollTop = pre.scrollHeight;
@@ -622,8 +719,10 @@ $("#screen .keys").addEventListener("click", async (e) => {
 
 // ── sending, quick replies and the reply sound ─────────────────────────────
 
-function sendMessage(text, id = state.current) {
-  return api(`/api/chats/${id}/send`, { body: { text } });
+function sendMessage(text, key = state.current) {
+  const c = state.chats.get(key);
+  if (!c) return Promise.reject(new Error("That chat isn't available right now."));
+  return chatApi(c, "/send", { body: { text } });
 }
 
 // One-tap replies, shown while Claude is waiting for you and the typing box is empty.
@@ -776,7 +875,7 @@ async function startCall() {
   if (!c) return;
   if (!speechApi() || !window.speechSynthesis) return toast("Voice calls need Safari on your iPhone.");
   if (c.status === "ended") return toast("Claude has stopped in this chat. Tap Resume first.");
-  Object.assign(call, { on: true, chatId: c.id, since: Date.now(), muted: false, speaking: false, awaiting: false, queue: [], spoken: new Set(), listener: null, current: null });
+  Object.assign(call, { on: true, chatId: c.key, since: Date.now(), muted: false, speaking: false, awaiting: false, queue: [], spoken: new Set(), listener: null, current: null });
   speechSynthesis.cancel();
   speechSynthesis.speak(new SpeechSynthesisUtterance("")); // iPhones only allow speech that starts from a tap
   unlockAudio();
@@ -798,7 +897,7 @@ async function startCall() {
 
 // Whenever the chat changes: Claude started or finished working, needs your OK, or stopped.
 function callChatChanged(old, c) {
-  if (!call.on || c.id !== call.chatId) return;
+  if (!call.on || c.key !== call.chatId) return;
   if (isWorking(c) || c.pending) { call.awaiting = false; clearTimeout(call.waitTimer); }
   $("#call-approval").hidden = !c.pending;
   if (c.pending && !old?.pending) say(`Claude needs your OK to use ${c.pending.tool}. Tap Approve or Deny.`);
@@ -940,4 +1039,4 @@ if (vv) {
 }
 
 route();
-connect();
+startComputers();

@@ -15,7 +15,8 @@ const chatId = process.env.CLAUDE_CHAT_ID; // set only for sessions started by c
 if (!chatId) process.exit(0);
 
 let secret;
-try { secret = fs.readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), "data/secret"), "utf8").trim(); }
+const data = process.env.CLAUDE_CHAT_DATA || path.join(path.dirname(new URL(import.meta.url).pathname), "data");
+try { secret = fs.readFileSync(path.join(data, "secret"), "utf8").trim(); }
 catch { process.exit(0); }
 
 const event = JSON.parse(input);

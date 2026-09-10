@@ -1,4 +1,4 @@
-#!/bin/zsh
+#!/bin/bash
 # Start a Claude Code chat from the Mac that also appears on the phone.
 #
 #   cchat              new chat (named after your first message)
@@ -6,14 +6,16 @@
 #
 # Run it inside one of your projects (or any folder within one) and the chat starts in that
 # project and is named after it. Plain `claude` still works as before and stays private to the Mac.
+# Plain bash (not zsh), so it works the same on a Mac and inside WSL on a Windows PC.
 
 PORT=${CLAUDE_CHAT_PORT:-4477}
 ROOT=${CLAUDE_CHAT_WORKDIR:-$HOME/Desktop/project}
+TMUX_BIN=$(command -v tmux || echo /opt/homebrew/bin/tmux)
 proj=""
-[[ $PWD == $ROOT/* ]] && proj=${${PWD#$ROOT/}%%/*}
+if [[ $PWD == "$ROOT"/* ]]; then rel=${PWD#"$ROOT"/}; proj=${rel%%/*}; fi
 resp=$(curl -sf -X POST "http://127.0.0.1:$PORT/api/chats" -H 'content-type: application/json' \
   -d "$(jq -n --arg n "$*" --arg p "$proj" '{name: $n, terminal: false, project: (if $p == "" then null else $p end)}')") || {
-  echo "The claude-chat server isn't running. Start it with: launchctl kickstart gui/$(id -u)/com.juslangit.claude-chat"
+  echo "The claude-chat server isn't running on this computer."
   exit 1
 }
-exec /opt/homebrew/bin/tmux -L claude-chat attach -t "$(echo "$resp" | jq -r .tmux)"
+exec "$TMUX_BIN" -L claude-chat attach -t "$(echo "$resp" | jq -r .tmux)"

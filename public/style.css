@@ -308,6 +308,13 @@ svg { display: block; flex: none; }
 .pick-text b { font-weight: 600; }
 .pick-text small { color: var(--muted); font-size: .8rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .avatar.folder { background: var(--green-strong); }
+.chips.in-sheet { flex: none; padding: 0; }
+
+/* several computers: a label in each chat row, and the Computers sheet */
+.where { color: var(--text); font-weight: 500; }
+.computer .state { color: var(--muted); font-size: .85rem; }
+.computer .state.on { color: var(--green-text); }
+.sheet-note { margin: -4px 4px 0; color: var(--muted); font-size: .8rem; line-height: 1.4; }
 
 .group { flex: none; background: var(--cell); border-radius: 12px; overflow: hidden; }
 .cell {
