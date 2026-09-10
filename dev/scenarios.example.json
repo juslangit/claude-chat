@@ -1,0 +1,7 @@
+[
+  { "url": "", "name": "list-light" },
+  { "dark": true, "name": "list-dark" },
+  { "dark": false, "eval": "document.querySelector('.row')?.click(); true", "wait": 3500, "name": "chat-light" },
+  { "dark": true, "name": "chat-dark" },
+  { "dark": false, "eval": "document.querySelector('#chat-head').click(); true", "name": "chat-info" }
+]
