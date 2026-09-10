@@ -17,6 +17,7 @@ import os from "node:os";
 import crypto from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { notesFromScreen, noteKey } from "./notes.mjs";
 
 const run = promisify(execFile);
 const ROOT = path.dirname(new URL(import.meta.url).pathname);
@@ -80,6 +81,7 @@ function summary(c) {
     project: c.cwd && c.cwd !== WORKDIR ? path.basename(c.cwd) : null,
     status: r.alive ? r.status : "ended",
     lastText: r.lastText, lastAt: r.lastAt || c.createdAt, count: r.count,
+    note: r.status === "working" || r.status === "approval" ? r.note || null : null, // Claude's latest progress note
     pending: r.pending && { reqId: r.pending.reqId, tool: r.pending.tool, detail: r.pending.detail, why: r.pending.why },
   };
 }
@@ -93,17 +95,31 @@ setInterval(() => { for (const res of clients) res.write(": ping\n\n"); }, 20000
 
 // ── reading what was said, from Claude Code's transcript file ──────────────────────────────
 
+// A step Claude took, in plain English ("Edited style.css"), plus the raw command or path
+// underneath for anyone who wants the detail.
 function describeTool(name, input = {}) {
-  const rel = (p) => (p?.startsWith(WORKDIR + "/") ? p.slice(WORKDIR.length + 1) : p) || "";
+  const rel = (p) => (p?.startsWith(WORKDIR + "/") ? p.slice(WORKDIR.length + 1) : p?.startsWith(HOME + "/") ? `~${p.slice(HOME.length)}` : p) || "";
+  const file = input.file_path || input.notebook_path;
+  const base = path.basename(file || "") || "a file";
+  const host = (u) => { try { return new URL(u).hostname; } catch { return u || "a web page"; } };
   switch (name) {
-    case "Bash": return `$ ${input.command || ""}`;
-    case "Read": case "Write": case "Edit": case "MultiEdit": case "NotebookEdit": return `${name} ${rel(input.file_path || input.notebook_path)}`;
-    case "Glob": case "Grep": return `${name} ${input.pattern || ""}`;
-    case "WebFetch": return `WebFetch ${input.url || ""}`;
-    case "WebSearch": return `WebSearch ${input.query || ""}`;
-    case "Agent": case "Task": return `Agent: ${input.description || ""}`;
-    case "TodoWrite": return "Updated the to-do list";
-    default: return name;
+    case "Bash": return { text: input.description || "Ran a command", detail: input.command || "" };
+    case "Read": return { text: `Read ${base}`, detail: rel(file) };
+    case "Write": return { text: `Wrote ${base}`, detail: rel(file) };
+    case "Edit": case "MultiEdit": case "NotebookEdit": return { text: `Edited ${base}`, detail: rel(file) };
+    case "Glob": return { text: "Looked for files", detail: input.pattern || "" };
+    case "Grep": return { text: `Searched the code for “${input.pattern || ""}”`, detail: rel(input.path) };
+    case "WebFetch": return { text: `Opened ${host(input.url)}`, detail: input.url || "" };
+    case "WebSearch": return { text: `Searched the web: ${input.query || ""}`, detail: "" };
+    case "Agent": case "Task": return { text: `Asked a helper: ${input.description || ""}`, detail: "" };
+    case "TodoWrite": return { text: "Updated the to-do list", detail: "" };
+    case "AskUserQuestion": return { text: "Asked you a question", detail: "" };
+    case "Skill": return { text: `Used the ${input.skill || ""} skill`, detail: "" };
+    case "ToolSearch": return { text: "Loaded extra tools", detail: "" };
+    default: {
+      const mcp = name.match(/^mcp__(.+?)__(.+)$/); // tools from add-ons: mcp__godot__run_project → "godot: run project"
+      return { text: mcp ? `${mcp[1]}: ${mcp[2].replace(/_/g, " ")}` : name, detail: "" };
+    }
   }
 }
 
@@ -126,7 +142,8 @@ function toMessages(o) {
       if (/^<[a-z-]+>/.test(text)) return; // Claude Code's own bookkeeping, not something you typed
       out.push({ id, role: "user", text, at });
     } else if (b.type === "tool_use") {
-      out.push({ id, role: "tool", text: describeTool(b.name, b.input), at });
+      const step = describeTool(b.name, b.input);
+      out.push({ id, role: "tool", text: step.text, ...(step.detail && step.detail !== step.text && { detail: step.detail }), at });
     } else if (b.type === "tool_result" && b.is_error) {
       const t = typeof b.content === "string" ? b.content : (b.content || []).map((x) => x.text || "").join(" ");
       out.push({ id, role: "tool", error: true, text: t.trim().split("\n")[0].slice(0, 200), at });
@@ -192,6 +209,43 @@ async function refreshAlive() {
   }
 }
 setInterval(refreshAlive, 3000);
+
+// ── Claude's progress notes, read off the screen while it works (see notes.mjs) ───────────────
+
+async function pollNotes() {
+  for (const c of Object.values(chats)) {
+    const r = rt(c.id);
+    if (!r.alive || r.status === "starting") continue;
+    if (r.status === "idle") {
+      // After a server restart no hook has said "working" yet. Claude Code's footer reads
+      // "esc to interrupt" while it works, so go by that until the next hook arrives.
+      let visible = "";
+      try { visible = (await tmux("capture-pane", "-p", "-t", c.tmux)).trimEnd(); } catch { continue; }
+      if (!/esc to interrupt/.test(visible.slice(-400))) continue;
+      r.status = "working";
+      chatChanged(c.id);
+    }
+    if (r.status !== "working" && r.status !== "approval") continue;
+    let screen;
+    try { screen = await tmux("capture-pane", "-p", "-J", "-S", "-1000", "-t", c.tmux); } catch { continue; }
+    r.noteKeys ||= new Set();
+    for (const text of notesFromScreen(screen)) {
+      const key = noteKey(text);
+      if (!key || r.noteKeys.has(key)) continue;
+      r.noteKeys.add(key);
+      if (r.noteKeys.size > 500) r.noteKeys.delete(r.noteKeys.values().next().value); // forget the oldest
+      r.note = text;
+      broadcast({ type: "note", chatId: c.id, text, at: Date.now() });
+      chatChanged(c.id);
+    }
+  }
+}
+let pollingNotes = false;
+setInterval(async () => {
+  if (pollingNotes) return;
+  pollingNotes = true;
+  try { await pollNotes(); } catch (e) { console.error("notes:", e.message); } finally { pollingNotes = false; }
+}, 1500);
 
 // ── driving claude inside tmux ─────────────────────────────────────────────────────────────
 
@@ -301,7 +355,7 @@ function askPhone(c, ev, res) {
   resolvePending(c.id, null);
   const p = {
     reqId: crypto.randomUUID(), tool: ev.tool_name, res,
-    detail: ev.tool_name === "Bash" ? ev.tool_input?.command : describeTool(ev.tool_name, ev.tool_input),
+    detail: ev.tool_name === "Bash" ? ev.tool_input?.command : describeTool(ev.tool_name, ev.tool_input).text,
     why: ev.tool_input?.description || "",
   };
   r.pending = p;
@@ -350,7 +404,7 @@ function handleHook(chatId, ev, res) {
         save();
       }
       break;
-    case "UserPromptSubmit": r.status = "working"; break;
+    case "UserPromptSubmit": r.status = "working"; r.note = null; break;
     case "Stop": r.status = "idle"; break;
     case "Notification": if (ev.notification_type === "idle_prompt") r.status = "idle"; break;
   }

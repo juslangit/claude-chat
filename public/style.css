@@ -189,6 +189,8 @@ svg { display: block; flex: none; }
 /* Time (and ticks) tucked in the bottom-right corner; the spacer keeps text from running under it. */
 .spacer { display: inline-block; width: 42px; height: 1px; }
 .spacer.wide { width: 60px; }
+.spacer.voiced { width: 76px; }
+.stamp .voice { width: 11px; height: 11px; margin-right: 1px; }
 .stamp {
   position: absolute; right: 8px; bottom: 5px; display: flex; align-items: center; gap: 3px;
   color: var(--stamp); font-size: .64rem; line-height: 1; white-space: nowrap;
@@ -206,12 +208,17 @@ svg { display: block; flex: none; }
 .bubble.tools { width: 80%; padding: 7px 10px; color: var(--muted); font-size: .8rem; white-space: normal; cursor: pointer; }
 .tools-sum { display: flex; align-items: center; gap: 7px; min-width: 0; }
 .tools-sum .n { flex: none; font-weight: 600; }
-.tools-sum .last { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: .74rem ui-monospace, Menlo, monospace; }
+.tools-sum .last { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tools-sum .chev { transition: transform .2s; }
 .tools.open .chev { transform: rotate(90deg); }
-.tools-list { display: none; margin: 7px 0 0; padding: 6px 0 0; list-style: none; border-top: .5px solid var(--line); font: .72rem/1.45 ui-monospace, Menlo, monospace; }
+.tools-list { display: none; margin: 7px 0 0; padding: 6px 0 0; list-style: none; border-top: .5px solid var(--line); font-size: .8rem; line-height: 1.4; }
 .tools.open .tools-list { display: block; }
-.tools-list li { padding: 2px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.tools-list li { padding: 3px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+/* the raw command or file path, small, under the plain-English step */
+.tools-list .raw {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  margin-top: 1px; font: .68rem/1.35 ui-monospace, Menlo, monospace; opacity: .75;
+}
 .tools-list li.error::before { content: "✕ "; }
 .tools-list li.error, .tools-sum .last.error { color: var(--danger); }
 
@@ -223,8 +230,13 @@ svg { display: block; flex: none; }
   align-self: center; max-width: 86%; margin: 10px 0 4px; padding: 6px 12px; border-radius: 8px;
   background: var(--notice); color: var(--notice-text); font-size: .76rem; text-align: center; box-shadow: var(--shadow);
 }
-.typing { display: flex; gap: 4px; margin-top: 8px; padding: 13px 14px; width: max-content; }
+/* "typing…" bubble, which also says what Claude is doing: its latest note and its latest step. */
+.typing { margin-top: 8px; padding: 8px 12px 9px; white-space: normal; }
+.dots { display: flex; gap: 4px; padding: 5px 2px; }
 .typing i { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); animation: blink 1.2s infinite; }
+.doing { margin-top: 3px; font-size: .92rem; line-height: 1.38; }
+.doing-note { white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 10; -webkit-box-orient: vertical; overflow: hidden; }
+.doing-now { margin-top: 4px; color: var(--muted); font-size: .78rem; }
 .typing i:nth-child(2) { animation-delay: .2s; }
 .typing i:nth-child(3) { animation-delay: .4s; }
 @keyframes blink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
@@ -308,7 +320,7 @@ svg { display: block; flex: none; }
 .info-hero { display: flex; flex-direction: column; align-items: center; gap: 2px; text-align: center; padding-top: 4px; }
 .info-hero h2 { margin: 10px 0 0; font-size: 1.4rem; font-weight: 600; overflow-wrap: anywhere; }
 .info-hero p { margin: 0; color: var(--muted); font-size: .9rem; }
-.tiles { flex: none; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.tiles { flex: none; display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .tile {
   display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 4px 10px;
   border-radius: 12px; background: var(--cell); color: var(--green-text); font-size: .78rem;
@@ -323,8 +335,60 @@ svg { display: block; flex: none; }
 .keys { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
 .keys button { height: 46px; border-radius: 10px; background: var(--cell); font-size: 1.05rem; font-weight: 600; }
 
+/* ── voice notes: hold the mic, talk, let go ── */
+.mic {
+  flex: none; width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; color: var(--text);
+  touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+  transition: transform .15s, background .15s;
+}
+.composer.has-text .mic { display: none; }
+.composer.recording .field, .composer.recording #stop { display: none; }
+.composer.recording .mic { background: var(--green); color: #fff; transform: scale(1.25); margin-right: 4px; }
+.rec-bar { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 4px; font-variant-numeric: tabular-nums; }
+.rec-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--danger); animation: pulse 1s infinite; }
+.rec-cancel { margin: 0 14px 0 auto; color: var(--muted); font-size: .85rem; white-space: nowrap; }
+.composer.cancelling .rec-cancel { color: var(--danger); }
+.rec-preview { flex: none; align-self: flex-end; max-width: 80%; margin: 0 14px 8px; font-style: italic; }
+
+/* ── quick replies, floating on the wallpaper above the typing bar ── */
+.quick { flex: none; display: flex; gap: 8px; padding: 2px 14px 8px; overflow-x: auto; scrollbar-width: none; }
+.quick::-webkit-scrollbar { display: none; }
+.quick button {
+  flex: none; padding: 7px 13px; border-radius: 16px; background: var(--in); color: var(--green-text);
+  font-size: .88rem; font-weight: 500; box-shadow: var(--shadow);
+}
+
+/* ── voice call: always dark, like WhatsApp's call screen ── */
+.call {
+  position: fixed; inset: 0; z-index: 30; display: flex; flex-direction: column; align-items: center; text-align: center;
+  color: #fff; background: radial-gradient(130% 70% at 50% 18%, #1d5646 0%, #0b141a 72%);
+  padding: calc(env(safe-area-inset-top) + 22px) 24px calc(env(safe-area-inset-bottom) + 26px); animation: fadein .2s;
+}
+@keyframes fadein { from { opacity: 0; } }
+.call-label { display: flex; align-items: center; gap: 6px; font-size: .78rem; opacity: .7; }
+#call-avatar .avatar { width: 116px; height: 116px; margin: 28px auto 14px; font-size: 2.8rem; }
+.call h2 { margin: 0; font-size: 1.6rem; font-weight: 600; }
+.call-time { margin-top: 4px; opacity: .75; font-variant-numeric: tabular-nums; }
+.call-middle { flex: 1; min-height: 0; width: 100%; display: flex; flex-direction: column; justify-content: center; gap: 14px; }
+.call-state { font-size: .95rem; opacity: .8; }
+.call-heard { min-height: 1.4em; font-size: 1.35rem; line-height: 1.35; font-weight: 500; }
+.call-said { max-height: 30vh; overflow-y: auto; font-size: .98rem; line-height: 1.45; opacity: .85; white-space: pre-wrap; }
+/* a ring pulses round the picture: green while it listens to you, white while Claude talks */
+.call[data-mode="listening"] #call-avatar .avatar { animation: ring 1.4s ease-out infinite; }
+.call[data-mode="speaking"] #call-avatar .avatar { animation: ring-white 1.4s ease-out infinite; }
+@keyframes ring { from { box-shadow: 0 0 0 0 rgba(37, 211, 102, .6); } to { box-shadow: 0 0 0 28px rgba(37, 211, 102, 0); } }
+@keyframes ring-white { from { box-shadow: 0 0 0 0 rgba(255, 255, 255, .45); } to { box-shadow: 0 0 0 28px rgba(255, 255, 255, 0); } }
+.call-approval { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; max-width: 360px; margin-bottom: 18px; }
+.call-approval button { height: 48px; border-radius: 12px; background: rgba(255, 255, 255, .16); color: #fff; font-weight: 600; }
+#call-approve { background: var(--green-strong); }
+.call-btns { display: flex; justify-content: space-between; width: 100%; max-width: 320px; }
+.call-btn { display: flex; flex-direction: column; align-items: center; gap: 7px; font-size: .78rem; color: #fff; }
+.call-btn .circle { width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center; background: rgba(255, 255, 255, .16); }
+.call-btn.on .circle { background: #fff; color: #111b21; }
+.call-btn.end .circle { background: var(--danger); }
+
 .toast {
-  position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 76px); z-index: 20; transform: translateX(-50%);
+  position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 76px); z-index: 40; transform: translateX(-50%);
   width: max-content; max-width: calc(100% - 32px); padding: 10px 16px; border-radius: 20px;
   background: rgba(40, 40, 40, .94); color: #fff; font-size: .9rem; text-align: center;
 }
