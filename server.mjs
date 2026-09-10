@@ -548,7 +548,7 @@ const KEYS = { up: "Up", down: "Down", left: "Left", right: "Right", enter: "Ent
 
 async function api(req, res, url) {
   if (url.pathname === "/api/projects" && req.method === "GET") return json(res, listProjects());
-  if (url.pathname === "/api/whoami") return json(res, { name: COMPUTER, os: OS, url: SELF_URL });
+  if (url.pathname === "/api/whoami") return json(res, { name: COMPUTER, os: OS, url: SELF_URL, version: pageVersion() });
   if (url.pathname === "/api/computers") return json(res, await otherComputers());
   if (url.pathname === "/api/sync/code" && req.method === "POST") return json(res, await newPairCode(req));
   if (url.pathname === "/api/sync/pair" && req.method === "POST") return json(res, await pairSync(await body(req)));
@@ -596,8 +596,9 @@ async function api(req, res, url) {
     case "POST approve": {
       const b = await body(req);
       const allow = b.decision === "allow", question = r.pending?.reqId === b.reqId && r.pending.questions;
-      // A question needs an answer (POST answer), not an OK. Denying one skips it.
-      if (allow && question) throw fail("Pick an answer to Claude's question first.", 409);
+      // A question needs an answer (POST answer), not an OK. Denying one skips it. Only a phone page from
+      // before questions had buttons would try to OK one.
+      if (allow && question) throw fail("Your phone has an old copy of this app, so it can't show the answer buttons. Close the app and open it again.", 409);
       const answer = allow ? { behavior: "allow" } : { behavior: "deny", ...(question && { message: "Luqman skipped this question from his phone." }) };
       if (!resolvePending(id, answer, b.reqId)) throw fail("That request was already answered.", 409);
       return json(res, { ok: true });
@@ -643,6 +644,14 @@ async function api(req, res, url) {
 
 const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".png": "image/png", ".svg": "image/svg+xml" };
 const PUBLIC = path.join(ROOT, "public");
+
+// A fingerprint of the phone page's files. It changes whenever public/ changes (a git pull), and an
+// open phone page that sees a new one reloads itself, so it never keeps running an old copy.
+function pageVersion() {
+  const h = crypto.createHash("sha1");
+  for (const f of fs.readdirSync(PUBLIC).sort()) h.update(f).update(fs.readFileSync(path.join(PUBLIC, f)));
+  return h.digest("hex").slice(0, 12);
+}
 
 function serveStatic(pathname, res) {
   const file = path.normalize(path.join(PUBLIC, pathname === "/" ? "index.html" : pathname));
