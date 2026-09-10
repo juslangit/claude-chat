@@ -82,7 +82,7 @@ const chatApi = (c, sub, opts) => api(`/api/chats/${c.id}${sub}`, opts, compOf(c
 function connect(comp) {
   comp.source?.close();
   comp.source = new EventSource(`${comp.base}/events`);
-  comp.source.onopen = () => { comp.online = true; if (comp === home) setOnline(true); refreshComputer(comp); };
+  comp.source.onopen = () => { comp.online = true; if (comp === home) { setOnline(true); checkVersion(); } refreshComputer(comp); };
   comp.source.onerror = () => { comp.online = false; if (comp === home) setOnline(false); renderList(); };
   comp.source.onmessage = (e) => onEvent(JSON.parse(e.data), comp);
 }
@@ -101,6 +101,7 @@ document.addEventListener("visibilitychange", () => {
     if (!comp.source || comp.source.readyState === EventSource.CLOSED) connect(comp); else refreshComputer(comp);
   }
   findComputers();
+  checkVersion();
   resumeCall();
 });
 
@@ -163,7 +164,24 @@ async function startComputers() {
   try { Object.assign(home, await api("/api/whoami")); } catch {}
   renderComputers();
   findComputers();
-  setInterval(findComputers, 120000);
+  setInterval(() => { findComputers(); checkVersion(); }, 120000);
+}
+
+// A Home Screen app can stay open for days, so after an update the phone could keep running the old
+// page (and, say, show Approve / Deny for a question that needs answer buttons). The computer this page
+// came from reports a version of its page files; when that changes, reload. Not during a call or a voice
+// note — it tries again at the next check. A half-typed message is kept, as drafts always are.
+async function checkVersion() {
+  let v;
+  try { v = (await api("/api/whoami", { timeout: 5000 })).version; } catch { return; }
+  if (!v || !home.version || v === home.version) { home.version ||= v; return; }
+  if (call.on || recording) return;
+  try {
+    if (sessionStorage.getItem("reloadedFor") === v) return; // already reloaded for this one; don't loop
+    sessionStorage.setItem("reloadedFor", v);
+  } catch {}
+  saveDraft();
+  location.reload();
 }
 async function findComputers() {
   let urls = [];
