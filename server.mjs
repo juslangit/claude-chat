@@ -311,9 +311,16 @@ let pairCode = null; // { code, expires }
 // Which kind of device sent a request. tailscale serve adds the caller's tailnet address to
 // X-Forwarded-For (the last entry is the one it added); requests made on this computer have none.
 async function callerOs(req) {
-  const ip = String(req.headers["x-forwarded-for"] || "").split(",").pop().trim();
-  if (!ip) return "local";
-  const peer = Object.values((await tailnetStatus())?.Peer || {}).find((p) => (p.TailscaleIPs || []).includes(ip));
+  const raw = String(req.headers["x-forwarded-for"] || "").split(",").pop().trim();
+  if (!raw) return "local";
+  // The address can come as "[fd7a::1]:port", "100.1.2.3:port" or "::ffff:100.1.2.3" — reduce it to the bare address.
+  const ip = raw.replace(/^\[([^\]]+)\](:\d+)?$/, "$1").replace(/^(\d+\.\d+\.\d+\.\d+):\d+$/, "$1").replace(/^::ffff:/i, "");
+  const st = await tailnetStatus();
+  const peer = [st?.Self, ...Object.values(st?.Peer || {})].find((p) => (p?.TailscaleIPs || []).includes(ip));
+  if (!peer) {
+    const seen = Object.fromEntries(Object.entries(req.headers).filter(([k]) => /forwarded|tailscale/i.test(k)));
+    console.log(`caller not recognised: address ${ip}; headers ${JSON.stringify(seen)}`);
+  }
   return peer?.OS || "unknown";
 }
 
