@@ -4,11 +4,15 @@
 #   cchat              new chat (named after your first message)
 #   cchat kedai fixes  new chat called "kedai fixes"
 #
-# Plain `claude` still works as before and stays private to the Mac.
+# Run it inside one of your projects (or any folder within one) and the chat starts in that
+# project and is named after it. Plain `claude` still works as before and stays private to the Mac.
 
 PORT=${CLAUDE_CHAT_PORT:-4477}
+ROOT=${CLAUDE_CHAT_WORKDIR:-$HOME/Desktop/project}
+proj=""
+[[ $PWD == $ROOT/* ]] && proj=${${PWD#$ROOT/}%%/*}
 resp=$(curl -sf -X POST "http://127.0.0.1:$PORT/api/chats" -H 'content-type: application/json' \
-  -d "$(jq -n --arg n "$*" '{name: $n, terminal: false}')") || {
+  -d "$(jq -n --arg n "$*" --arg p "$proj" '{name: $n, terminal: false, project: (if $p == "" then null else $p end)}')") || {
   echo "The claude-chat server isn't running. Start it with: launchctl kickstart gui/$(id -u)/com.juslangit.claude-chat"
   exit 1
 }

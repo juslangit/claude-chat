@@ -4,8 +4,9 @@ Use Claude Code on the home Mac from your iPhone, like WhatsApp.
 
 - Each chat on the phone **is** a Claude Code session running on the Mac, and each one is also a
   Terminal window on the Mac. Type in either place; both stay in sync.
-- Tap **+** on the phone and a new Terminal window with Claude Code opens on the Mac, starting in
-  `~/Desktop/project/` — so whatever you build lands in the project folder.
+- Tap **+** on the phone and pick a project, the way you'd pick a contact in WhatsApp. A new Terminal
+  window with Claude Code opens on the Mac inside that project (or in `~/Desktop/project/` itself if
+  you pick "Whole project folder") — so whatever you build lands in the project folder.
 - Chats run in **bypass permissions** mode, the same as plain `claude` on this Mac: commands and file
   edits go ahead without asking. The deny list in `~/.claude/settings.json` (sudo, `rm -rf`, force-push…)
   still blocks those. If Claude Code does stop to ask something, the phone shows **Approve / Deny**
@@ -51,8 +52,8 @@ Use Claude Code on the home Mac from your iPhone, like WhatsApp.
 
 | I want to… | Do this |
 |---|---|
-| Start a chat from the phone | Tap **+** |
-| Start a chat from the Mac that shows on the phone | `cchat` or `cchat my project name` |
+| Start a chat from the phone | Tap **+**, then pick a project |
+| Start a chat from the Mac that shows on the phone | `cchat` or `cchat my chat name` — run inside a project folder and the chat starts in that project |
 | Keep a chat private to the Mac | Plain `claude`, as before |
 | Stop Claude mid-answer | Red **■** button (same as pressing Esc) |
 | Rename a chat, end it, or open it on the Mac | Tap the chat's name at the top (Chat info) |
