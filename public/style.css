@@ -471,15 +471,17 @@ svg { display: block; flex: none; }
 #reply-cancel { flex: none; width: 34px; height: 34px; display: grid; place-items: center; color: var(--muted); }
 
 .composer { flex: none; display: flex; align-items: flex-end; gap: 8px; padding: 10px 14px calc(env(safe-area-inset-bottom) + 12px); }
-.field {
+/* Its own name, not .field: that's the sheets' text boxes further down, and sharing it made this one
+   full width (pushing Send off the screen) and a fixed 50px tall (so a new line had nowhere to go). */
+.compose-field {
   flex: 1; min-width: 0; display: flex; border-radius: 24px; background: var(--panel); border: 1px solid var(--line);
   backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
 }
-.field textarea {
-  flex: 1; min-height: 46px; max-height: 40vh; resize: none; border: 0; outline: 0; background: none;
+.compose-field textarea {
+  flex: 1; min-width: 0; min-height: 46px; max-height: 40vh; resize: none; border: 0; outline: 0; background: none;
   padding: 12px 16px; color: var(--ink); font: inherit; font-size: 1rem; line-height: 1.35;
 }
-.field textarea::placeholder { color: var(--muted); }
+.compose-field textarea::placeholder { color: var(--muted); }
 .round-btn.send { background: var(--accent); border-color: transparent; color: var(--accent-ink); }
 .round-btn.send svg { margin-left: 2px; }
 .round-btn.stop { background: var(--danger); border-color: transparent; color: #fff; }
@@ -488,7 +490,7 @@ svg { display: block; flex: none; }
 .composer:not(.has-text) #send { display: none; }
 .composer.has-text .mic { display: none; }
 .mic { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; transition: transform .15s, background .15s; }
-.composer.recording .field, .composer.recording #stop, .composer.recording #attach { display: none; }
+.composer.recording .compose-field, .composer.recording #stop, .composer.recording #attach { display: none; }
 .composer.recording .mic { background: var(--accent); border-color: transparent; color: var(--accent-ink); transform: scale(1.2); }
 .rec-bar { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; height: 46px; padding: 0 8px; font-variant-numeric: tabular-nums; }
 .rec-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--danger); animation: pulse 1s infinite; }
