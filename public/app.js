@@ -191,7 +191,7 @@ function onEvent(ev, comp = home) {
     const key = keyOf(comp, ev.id);
     state.chats.delete(key);
     state.messages.delete(key);
-    if (state.current === key) location.hash = "";
+    if (state.current === key) go("chats");
     renderList();
   } else if (ev.type === "messages") {
     const key = keyOf(comp, ev.chatId);
@@ -319,7 +319,8 @@ function avatar(c, size = "") {
   let h = 0;
   for (const ch of c.id) h = (h * 31 + ch.charCodeAt(0)) % 360;
   const initial = [...(c.name || "?").trim()][0]?.toUpperCase() || "?";
-  return `<div class="avatar ${size}" style="background:hsl(${h} 38% 48%)">${esc(initial)}</div>`;
+  // Warm shades only, so the faces sit in the same amber world as the rest of the app.
+  return `<div class="avatar ${size}" style="background:linear-gradient(150deg,hsl(${16 + (h % 44)} 78% 56%),hsl(${10 + (h % 30)} 74% 44%))">${esc(initial)}</div>`;
 }
 
 const clock = (ts) => new Date(ts).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
@@ -359,7 +360,70 @@ function renderList() {
   for (const chip of document.querySelectorAll(".chip")) chip.classList.toggle("on", chip.dataset.filter === state.filter);
   renderOfflineNotes();
   renderBackCount();
+  renderHome();
 }
+
+// ── Home ───────────────────────────────────────────────────────────────────
+// The first screen: who you are, a box to start something, today at a glance, and what's running.
+
+const ordinal = (n) => (n > 3 && n < 21 ? "th" : ["th", "st", "nd", "rd"][n % 10] || "th");
+function dayNote(working, waiting, unread) {
+  const bits = [];
+  if (working) bits.push(`${working} chat${working > 1 ? "s" : ""} working`);
+  if (waiting) bits.push(`${waiting} waiting for you`);
+  if (unread) bits.push(`${unread} new repl${unread > 1 ? "ies" : "y"}`);
+  return bits.length ? bits.join(" · ") : "Nothing running. All quiet.";
+}
+function actLine(c) {
+  if (c.pending) return `${c.pending.questions ? "Asks" : "Wants to run"}: ${c.pending.detail}`;
+  if (isWorking(c)) return c.note || STATUS[c.status];
+  return plain(previewOf(c.lastText)) || "No messages yet";
+}
+
+function renderHome() {
+  if ($("#home-view").hidden) return;
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+  $("#hello-text").textContent = home.name ? `${greeting} · ${home.name}` : greeting;
+  $("#hello-avatar").textContent = [...(home.name || "Claude").trim()][0].toUpperCase();
+
+  const chats = [...state.chats.values()];
+  const working = chats.filter((c) => isWorking(c) || c.status === "approval");
+  const waiting = chats.filter((c) => c.pending);
+  const unread = chats.reduce((n, c) => n + unreadOf(c), 0);
+  const d = new Date();
+  $("#day-card").innerHTML = `
+    <div class="day-date">${d.toLocaleDateString("en-GB", { weekday: "short" })} <span>${d.getDate()}${ordinal(d.getDate())}</span></div>
+    <div class="day-row">
+      <div class="day-note">${esc(dayNote(working.length, waiting.length, unread))}</div>
+      <button class="day-go">Open chats</button>
+    </div>`;
+
+  const cards = (working.length ? working : chats.filter((c) => c.status !== "ended")).slice(0, 6);
+  $("#activity").innerHTML = cards.length
+    ? cards.map((c) => `<button class="act-card" data-id="${c.key}">${avatar(c, "small")}
+        <div class="act-name">${esc(c.name)}</div>
+        <div class="act-line">${esc(actLine(c))}</div></button>`).join("")
+    : `<div class="act-card quiet">Nothing running yet.<br>Tap + to start something.</div>`;
+
+  $("#home-computers").innerHTML = state.computers.map((c) =>
+    `<span class="home-comp"><i class="dot${c.online ? " on" : ""}"></i>${esc(c.name || "This computer")}</span>`).join("");
+}
+
+$("#activity").addEventListener("click", (e) => {
+  const card = e.target.closest(".act-card");
+  if (card?.dataset.id) go(`chat/${card.dataset.id}`);
+});
+$("#day-card").addEventListener("click", (e) => { if (e.target.closest(".day-go")) go("chats"); });
+$("#see-all").onclick = () => go("chats");
+
+// The box at the top of Home: what you type there becomes the first thing you say in a new chat.
+let pendingAsk = "";
+$("#ask-box").addEventListener("submit", (e) => {
+  e.preventDefault();
+  pendingAsk = $("#ask-input").value.trim();
+  openNewChat();
+});
 
 // Chat previews drop Markdown symbols so they read like plain messages.
 const plain = (s) => String(s || "").replace(/```[^\n]*\n?/g, "").replace(/[*`#]+/g, "").replace(/\s+/g, " ").trim();
@@ -400,41 +464,49 @@ $("#chips").addEventListener("click", (e) => {
 });
 $("#search").addEventListener("input", (e) => { state.search = e.target.value; renderList(); });
 
-// The big "Chats" title scrolls away and a small one appears in the bar, as on the iPhone.
-const listScroll = $("#list-scroll");
-listScroll.addEventListener("scroll", () => $("#list-nav").classList.toggle("scrolled", listScroll.scrollTop > 40), { passive: true });
+// ── moving between screens (the URL carries it, so the back gesture works) ──
+// Four screens sit behind the floating bar — Home, Chats, Computers, Settings — and a chat opens
+// over the top of them.
 
-// ── moving between the list and a chat (uses the URL, so the back gesture works) ──
+const TABS = ["home", "chats", "computers", "settings"];
+const VIEWS = { home: "#home-view", chats: "#list-view", computers: "#computers-view", settings: "#settings-view" };
+const go = (where) => (location.hash = where);
 
 function route() {
   endCall(); // leaving a chat hangs up
   saveDraft();
   setReply(null);
   closeFind();
+  closeSheets();
   const m = location.hash.match(/^#chat\/(?:([\w-]+)\/)?([\w-]+)/); // #chat/<computer>/<chat>, or an old #chat/<chat>
   const id = m ? `${m[1] || "home"}/${m[2]}` : null;
+  const tab = id ? null : TABS.find((t) => location.hash === `#${t}`) || "home";
   state.current = id;
-  $("#list-view").hidden = !!id;
+  for (const [name, sel] of Object.entries(VIEWS)) $(sel).hidden = name !== tab;
   $("#chat-view").hidden = !id;
-  closeSheets();
-  if (id) {
-    state.lastStep = null; // the progress bubble only ever shows this chat's steps
-    // For the first few seconds the top bar says "tap here for chat info", like WhatsApp.
-    state.hintUntil = Date.now() + 3000;
-    clearTimeout(route.hint);
-    route.hint = setTimeout(renderChatChrome, 3100);
-    $("#messages").innerHTML = "";
-    resetGroups();
-    input.value = state.drafts[id] || "";
-    grow();
-    renderChatChrome();
-    loadMessages(id);
-  } else {
-    renderList();
+  $("#tabs").hidden = !!id;
+  for (const b of document.querySelectorAll(".tab")) b.classList.toggle("on", b.dataset.tab === tab);
+  if (!id) {
+    renderList(); // which also refreshes Home
+    renderComputers();
+    if (tab === "computers") { $("#add-box").hidden = true; findComputers(); }
+    return;
   }
+  state.lastStep = null; // the progress bubble only ever shows this chat's steps
+  // For the first few seconds the top bar says "tap here for chat info".
+  state.hintUntil = Date.now() + 3000;
+  clearTimeout(route.hint);
+  route.hint = setTimeout(renderChatChrome, 3100);
+  $("#messages").innerHTML = "";
+  resetGroups();
+  input.value = state.drafts[id] || "";
+  grow();
+  renderChatChrome();
+  loadMessages(id);
 }
 window.addEventListener("hashchange", route);
-$("#back").onclick = () => (location.hash = "");
+$("#tabs").addEventListener("click", (e) => { const t = e.target.closest(".tab"); if (t) go(t.dataset.tab); });
+$("#back").onclick = () => go("chats");
 
 // The number next to the back arrow: other chats with something new.
 function renderBackCount() {
@@ -811,13 +883,15 @@ for (const s of document.querySelectorAll(".sheet")) {
 // New chat lists your projects like WhatsApp lists contacts. Tap one and Claude starts in that folder.
 // With more than one computer, the chips at the top pick which computer it starts on.
 let newOn = home;
-$("#new-chat").onclick = () => {
+function openNewChat() {
   openSheet("#new-sheet");
   $("#new-search").value = "";
   newOn = state.computers.find((c) => c.id === read("newOn", "home") && c.online) || home;
   renderNewComputers();
   loadProjects();
-};
+}
+$("#new-chat").onclick = openNewChat;
+$("#home-new").onclick = openNewChat;
 $("#new-search").addEventListener("input", renderProjects);
 function renderNewComputers() {
   const online = state.computers.filter((c) => c.online);
@@ -873,7 +947,14 @@ $("#new-sheet").addEventListener("click", async (e) => {
   try {
     const c = tag(newOn, await api("/api/chats", { body: { project: pick.dataset.project || undefined } }, newOn));
     state.chats.set(c.key, c);
-    location.hash = `chat/${c.key}`;
+    go(`chat/${c.key}`);
+    // Started from Home's box: what you typed there is the first thing Claude hears.
+    if (pendingAsk) {
+      const text = pendingAsk;
+      pendingAsk = "";
+      $("#ask-input").value = "";
+      setTimeout(() => sendMessage(text, c.key).catch((err) => toast(err.message)), 400);
+    }
   } catch (err) {
     toast(err.message);
   } finally {
@@ -882,8 +963,7 @@ $("#new-sheet").addEventListener("click", async (e) => {
   }
 });
 
-$("#list-more").onclick = () => openSheet("#list-menu");
-$("#computers-btn").onclick = () => { openSheet("#computers"); $("#add-box").hidden = true; renderComputers(); findComputers(); };
+$("#computers-btn").onclick = () => go("computers");
 // Add a computer: the lines to paste on it, and a one-time pairing code it asks for (it will
 // receive your Claude setup, keys included, so it has to be you at that computer).
 $("#add-computer").onclick = async () => {
@@ -932,7 +1012,7 @@ $("#rename").onclick = async () => {
 $("#end-chat").onclick = async () => {
   closeSheets();
   if (!confirm("End this chat?\n\nClaude stops and the chat leaves this list. Anything it made stays in your project folder.")) return;
-  try { await chatApi(cur(), "", { method: "DELETE" }); location.hash = ""; }
+  try { await chatApi(cur(), "", { method: "DELETE" }); go("chats"); }
   catch (e) { toast(e.message); }
 };
 
