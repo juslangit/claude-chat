@@ -2,10 +2,13 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<!-- "black", not "black-translucent": with the see-through status bar the iPhone drew the page from
+     the very top of the screen but only gave it the height left over after the notch and the home
+     indicator, so the greeting hid under the Dynamic Island and a tall black band sat under the app. -->
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
 <meta name="apple-mobile-web-app-title" content="Claude Chats">
 <meta name="theme-color" content="#fff5ef" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
@@ -95,7 +98,9 @@
 
 <!-- ── Settings ──────────────────────────────────────── -->
 <section id="settings-view" class="view" hidden>
-  <header class="nav"><span class="nav-side"></span><div class="nav-title">Settings</div><span class="nav-side right"></span></header>
+  <header class="nav"><span class="nav-side"></span><div class="nav-title">Settings</div><span class="nav-side right">
+    <button id="profile-btn" class="profile-btn" aria-label="Your Claude account"><span class="avatar small folder">&nbsp;</span></button>
+  </span></header>
   <main class="page">
     <div class="group">
       <button id="read-all" class="cell">Mark everything read</button>
@@ -230,6 +235,37 @@
   </div>
 </div>
 
+<!-- ── Your Claude account ──────────────────────────── -->
+<div id="profile-sheet" class="sheet" hidden>
+  <div class="card">
+    <div class="grabber"></div>
+    <div class="sheet-nav"><button class="link close">Close</button><b>Account</b><span></span></div>
+
+    <div id="profile-computers" class="chips in-sheet" hidden></div>
+    <div id="profile-head" class="profile-head"></div>
+
+    <div id="profile-list" class="group"></div>
+    <p id="profile-note" class="sheet-note">New chats run on the account with the tick. Chats already going keep the account they started on.</p>
+
+    <button id="profile-add" class="btn plain">Add another account</button>
+    <button id="profile-remove" class="btn plain danger" hidden>Remove this account</button>
+
+    <!-- signing a second account in, driven from here: tap the link, sign in, paste the code back -->
+    <div id="profile-login" hidden>
+      <div class="section-title">Adding an account</div>
+      <input id="login-label" class="field" placeholder="Name it — “Max account”" autocomplete="off" maxlength="40">
+      <div id="login-plan" class="chips in-sheet">
+        <button class="chip on" data-plan="Max">Max</button><button class="chip" data-plan="Pro">Pro</button>
+      </div>
+      <p id="login-status" class="sheet-note"></p>
+      <a id="login-link" class="btn" target="_blank" rel="noreferrer" hidden>Open the sign-in page</a>
+      <input id="login-code" class="field" placeholder="Paste the code from that page" autocomplete="off" hidden>
+      <button id="login-go" class="btn plain">Start</button>
+      <button id="login-cancel" class="btn plain">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <div id="info" class="sheet" hidden>
   <div class="card info">
     <div class="grabber"></div>
@@ -248,6 +284,7 @@
     </div>
     <div class="group">
       <div class="cell"><span>Computer</span><span id="info-computer" class="muted"></span></div>
+      <div id="info-account-row" class="cell" hidden><span>Claude account</span><span id="info-account" class="muted"></span></div>
       <div class="cell"><span>Folder</span><span id="info-folder" class="muted"></span></div>
       <div class="cell"><span>Started</span><span id="info-started" class="muted"></span></div>
       <div class="cell"><span>Replies from Claude</span><span id="info-count" class="muted"></span></div>
