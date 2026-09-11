@@ -947,6 +947,7 @@ async function api(req, res, url) {
   if (url.pathname === "/api/projects" && req.method === "GET") return json(res, listProjects());
   if (url.pathname === "/api/commands" && req.method === "GET") return json(res, listCommands(chats[url.searchParams.get("chat")]?.cwd));
   if (url.pathname === "/api/whoami") return json(res, { name: COMPUTER, os: OS, url: SELF_URL, version: pageVersion() });
+  if (url.pathname === "/api/code" && req.method === "GET") return json(res, await codeState());
   if (url.pathname === "/api/computers") return json(res, await otherComputers());
   if (url.pathname === "/api/sync/code" && req.method === "POST") return json(res, await newPairCode(req));
   if (url.pathname === "/api/sync/pair" && req.method === "POST") return json(res, await pairSync(await body(req)));
@@ -1168,6 +1169,21 @@ function pageVersion() {
   const h = crypto.createHash("sha1");
   for (const f of fs.readdirSync(PUBLIC).sort()) h.update(f).update(fs.readFileSync(path.join(PUBLIC, f)));
   return h.digest("hex").slice(0, 12);
+}
+
+// Which commit this computer's claude-chat is on, and anything changed here that isn't in the project:
+// edited files, and anything put aside with git stash. dev/update-computer.mjs reads this first and
+// won't update a computer that has any, so nobody's work gets pushed aside without a decision.
+async function codeState() {
+  // trimEnd, not trim: `git status --porcelain` lines start with a meaningful space (" M file").
+  const git = async (...args) => (await run("git", args, { cwd: ROOT, encoding: "utf8" })).stdout.trimEnd();
+  const lines = (s) => (s ? s.split("\n") : []);
+  try {
+    const [commit, changed, stashed] = await Promise.all([git("rev-parse", "--short", "HEAD"), git("status", "--porcelain"), git("stash", "list")]);
+    return { commit, unsaved: lines(changed), stashes: lines(stashed) };
+  } catch (e) {
+    return { error: e.message.split("\n")[0] };
+  }
 }
 
 function serveStatic(pathname, res) {

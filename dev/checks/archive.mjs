@@ -79,6 +79,9 @@ let chrome, A, B, C, E;
 try {
   startServer();
   check("server starts", await waitUp());
+  // (not archive, but this suite already has a server up) what dev/update-computer.mjs asks before updating
+  const code = (await req("GET", "/api/code")).json;
+  check("the computer says which commit it's on and what isn't saved", /^[0-9a-f]{7,}$/.test(code?.commit || "") && Array.isArray(code.unsaved) && Array.isArray(code.stashes), JSON.stringify(code).slice(0, 120));
   await req("GET", "/api/push/key");
   await req("POST", "/api/push/subscribe", { body: { endpoint: `http://127.0.0.1:${RECV}/phone`, keys: { p256dh: b64u(phonePub), auth: b64u(auth) } } });
   await req("POST", "/api/presence", { body: { looking: false } });

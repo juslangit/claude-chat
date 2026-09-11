@@ -18,6 +18,24 @@ const T = (method, path, body) => {
 };
 const status = (id) => T("GET", "/api/chats").json?.find?.((x) => x.id === id)?.status;
 
+// First: has that computer got changes that aren't in the project? Then stop and say so — updating
+// would push them aside (or lose them) without anyone deciding to. (2026-09-11: a fix made on the PC
+// was quietly stashed this way and nearly lost.)
+const code = T("GET", "/api/code");
+if (code.status === 200 && code.json && !code.json.error) {
+  const { commit, unsaved = [], stashes = [] } = code.json;
+  if (unsaved.length || stashes.length) {
+    console.log(`STOPPED — ${HOST} has changes that aren't in the project (it's on ${commit}):`);
+    for (const l of unsaved) console.log(`  changed here:  ${l}`);
+    for (const l of stashes) console.log(`  put aside:     ${l}`);
+    console.log("Nothing was updated. Look at them first — bring them into the project, or discard them — then run this again.");
+    process.exit(2);
+  }
+  console.log(`${HOST} is on ${commit}, with no unsaved changes`);
+} else {
+  console.log(`couldn't check ${HOST} for unsaved changes (${code.json?.error || `its claude-chat is too old to say — ${code.status}`}); the helper is told to stop if it finds any`);
+}
+
 const c = T("POST", "/api/chats", { name: "Update claude-chat", terminal: false }).json;
 if (!c?.id) { console.log("couldn't start the helper chat"); process.exit(1); }
 console.log("helper chat", c.id);
@@ -26,6 +44,8 @@ console.log("helper status:", status(c.id));
 
 const sent = T("POST", `/api/chats/${c.id}/send`, { text:
   "Update claude-chat on this computer, please, without asking me anything. 1) In the claude-chat folder inside the project folder, " +
+  "run `git status --short`. If it lists ANY file, stop right there: don't pull, stash, commit, discard or restart anything — " +
+  "reply with the words UNSAVED CHANGES and that list, and do nothing else. Otherwise " +
   "run `git pull --ff-only` (branch main). 2) Restart the claude-chat server: find the PID of the `node server.mjs` process " +
   "listening on port 4477 (e.g. `ss -ltnp | grep 4477`) and kill only that one process — start.sh starts it again within a " +
   "few seconds. Don't touch tmux or any other process. 3) Reply with the output of `git log --oneline -1`." });
@@ -43,3 +63,10 @@ for (let i = 0; i < 30 && status(c.id) !== "idle"; i++) await sleep(2000);
 const msgs = T("GET", `/api/chats/${c.id}/messages`).json || [];
 console.log("helper's last words:", msgs.filter((m) => m.role === "assistant").map((m) => m.text).at(-1));
 console.log("delete helper chat:", T("DELETE", `/api/chats/${c.id}`).status);
+
+// And after: where it landed, and that nothing was left changed or put aside.
+const now = T("GET", "/api/code").json;
+if (now && !now.error) {
+  const extra = [...(now.unsaved || []), ...(now.stashes || [])];
+  console.log(`${HOST} is now on ${now.commit}` + (extra.length ? ` — but has changes that aren't in the project: ${extra.join("; ")}` : ", with no unsaved changes"));
+}
