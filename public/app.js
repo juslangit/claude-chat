@@ -319,8 +319,11 @@ function avatar(c, size = "") {
   let h = 0;
   for (const ch of c.id) h = (h * 31 + ch.charCodeAt(0)) % 360;
   const initial = [...(c.name || "?").trim()][0]?.toUpperCase() || "?";
-  // Warm shades only, so the faces sit in the same amber world as the rest of the app.
-  return `<div class="avatar ${size}" style="background:linear-gradient(150deg,hsl(${16 + (h % 44)} 78% 56%),hsl(${10 + (h % 30)} 74% 44%))">${esc(initial)}</div>`;
+  // Straight from the palette, so every face belongs to the same five colours.
+  // The three bright ones only: maroon would vanish into the cards, which are maroon themselves.
+  const FACES = [["#ff9810", "#c96a09"], ["#fd975c", "#d8643a"], ["#24a7a1", "#166d6a"], ["#ffb454", "#e07a12"], ["#4cc4bf", "#1e8e89"]];
+  const [from, to] = FACES[h % FACES.length];
+  return `<div class="avatar ${size}" style="background:linear-gradient(150deg,${from},${to})">${esc(initial)}</div>`;
 }
 
 const clock = (ts) => new Date(ts).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
