@@ -208,6 +208,24 @@ svg { display: block; flex: none; }
 }
 .row.swiping::before { opacity: 1; }
 .row.swipe-ready::before { background: var(--accent); color: var(--accent-ink); }
+/* the same on the other side: swipe left to archive */
+.row::after {
+  content: attr(data-swipe-left); position: absolute; right: -76px; top: 50%; width: 64px; height: 30px; margin-top: -15px;
+  display: grid; place-items: center; border-radius: 15px; background: var(--panel); color: var(--muted); font-size: .8rem; font-weight: 600;
+  opacity: 0; transition: opacity .12s;
+}
+.row.swiping-left::after { opacity: 1; }
+.row.swipe-ready-left::after { background: var(--accent); color: var(--accent-ink); }
+
+/* the row that holds everything you've archived */
+.archived-row {
+  display: flex; align-items: center; gap: 12px; width: 100%; margin-bottom: 8px; padding: 14px 16px;
+  border-radius: var(--radius); background: var(--panel); border: 1px solid var(--line); color: var(--muted); text-align: left;
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+}
+.archived-row:active { background: var(--panel-2); }
+.arch-text { flex: 1; color: var(--ink); font-size: 1rem; font-weight: 600; }
+.arch-count { color: var(--muted); font-size: .92rem; }
 .row .meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .row .top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .row .name { font-size: 1rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

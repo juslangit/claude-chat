@@ -18,6 +18,7 @@ const state = {
   lastStep: null,                // the open chat's latest step, for the "typing…" bubble
   computers: [],                 // every computer running claude-chat that this phone can reach
   pinned: read("pinned", []),    // keys of pinned chats, newest pin first
+  archivedView: false,           // true while the list is showing what you've archived
 };
 // Chats from every computer share one list. A chat's key is "<computer>/<chat id>"; "home" is the
 // computer this page came from.
@@ -76,6 +77,8 @@ const ICON = {
   phone: `<svg class="voice" viewBox="0 0 24 24" fill="currentColor"><path d="M5 3.5h3.2l1.6 4-2.1 1.5a11 11 0 0 0 7.3 7.3l1.5-2.1 4 1.6V19a1.8 1.8 0 0 1-1.9 1.8C10.3 20.3 3.7 13.7 3.2 5.4A1.8 1.8 0 0 1 5 3.5z"/></svg>`,
   pin: `<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M14.5 2.5l7 7-2.3.9-3.6 3.6.6 4.6-1.6 1.6-4.2-4.2L5 21.4 3.6 20l5.4-5.4-4.2-4.2 1.6-1.6 4.6.6 3.6-3.6z"/></svg>`,
   command: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M14.5 4.5 9.5 19.5"/><path d="M6 8.5 2.5 12 6 15.5M18 8.5 21.5 12 18 15.5"/></svg>`,
+  archive: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4.5" rx="1.2"/><path d="M4.8 8.5h14.4V19a1.2 1.2 0 0 1-1.2 1.2H6a1.2 1.2 0 0 1-1.2-1.2z"/><path d="M10 12.5h4"/></svg>`,
+  back: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12H4M10 6l-6 6 6 6"/></svg>`,
 };
 
 // Talk to a computer's server (this one unless another is given).
@@ -156,7 +159,7 @@ function setOnline(on) {
   state.online = on;
   const title = $("#nav-title");
   title.classList.toggle("offline", !on);
-  title.innerHTML = on ? "Chats" : `<span class="spin"></span>Connecting…`;
+  title.innerHTML = on ? (state.archivedView ? "Archived" : "Chats") : `<span class="spin"></span>Connecting…`;
   renderChatChrome();
 }
 // iPhones pause pages in the background; catch up when you come back.
@@ -342,7 +345,9 @@ function when(ts) {
 const unreadOf = (c) => Math.max(0, c.count - (state.seen[c.id] ?? 0));
 
 // Does a chat belong under the chip that's picked, and match what's typed in Search?
+// Archived chats only show while you're looking at Archived, and never anywhere else.
 function matches(c) {
+  if (isArchived(c) !== state.archivedView) return false;
   const f = state.filter;
   if (f === "unread" && !(unreadOf(c) || c.pending)) return false;
   if (f === "working" && !(isWorking(c) || c.status === "approval")) return false;
@@ -357,14 +362,35 @@ function renderList() {
   // Pinned chats first, then any waiting for you, then the most recent.
   const all = [...state.chats.values()].sort((a, b) => isPinned(b) - isPinned(a) || !!b.pending - !!a.pending || b.lastAt - a.lastAt);
   const shown = all.filter(matches);
-  $("#chat-list").innerHTML = !all.length
-    ? `<div class="empty"><p>No chats yet.</p><p>Tap <b>+</b> to start one. A Terminal window with Claude Code opens on the Mac, ready to go.</p></div>`
-    : shown.length ? shown.map(rowHtml).join("") : `<div class="empty">${NOTHING[state.filter]}</div>`;
+  const archived = all.filter(isArchived).length;
+
+  // One row at the top holds everything you've put away, the way WhatsApp does it.
+  const row = $("#archived-row");
+  row.hidden = !archived && !state.archivedView;
+  row.innerHTML = state.archivedView
+    ? `${ICON.back}<span class="arch-text">All chats</span>`
+    : `${ICON.archive}<span class="arch-text">Archived</span><span class="arch-count">${archived}</span>`;
+  if (state.online) $("#nav-title").textContent = state.archivedView ? "Archived" : "Chats";
+
+  $("#chat-list").innerHTML = shown.length
+    ? shown.map(rowHtml).join("")
+    : `<div class="empty">${state.archivedView ? "Nothing archived."
+      : !all.length ? "No chats yet.<br>Tap <b>+</b> to start one — a Terminal window opens on the computer, ready to go."
+      : NOTHING[state.filter]}</div>`;
   for (const chip of document.querySelectorAll(".chip")) chip.classList.toggle("on", chip.dataset.filter === state.filter);
+  const stopped = all.filter((c) => c.status === "ended").length;
+  $("#stopped-count").textContent = stopped || "";
+  $("#delete-stopped").disabled = !stopped;
   renderOfflineNotes();
   renderBackCount();
   renderHome();
 }
+
+$("#archived-row").onclick = () => {
+  state.archivedView = !state.archivedView;
+  renderList();
+  $("#list-scroll").scrollTop = 0;
+};
 
 // ── Home ───────────────────────────────────────────────────────────────────
 // The first screen: who you are, a box to start something, today at a glance, and what's running.
@@ -390,7 +416,7 @@ function renderHome() {
   $("#hello-text").textContent = home.name ? `${greeting} · ${home.name}` : greeting;
   $("#hello-avatar").textContent = [...(home.name || "Claude").trim()][0].toUpperCase();
 
-  const chats = [...state.chats.values()];
+  const chats = [...state.chats.values()].filter((c) => !isArchived(c)); // archived chats stay out of Home
   const working = chats.filter((c) => isWorking(c) || c.status === "approval");
   const waiting = chats.filter((c) => c.pending);
   const unread = chats.reduce((n, c) => n + unreadOf(c), 0);
@@ -447,7 +473,7 @@ function rowHtml(c) {
     if (c.status === "ended") preview = `Stopped · ${preview}`;
   }
   preview = whereLabel(c) + preview;
-  return `<button class="row${unread ? " unread" : ""}" data-id="${c.key}" data-swipe="${isPinned(c) ? "Unpin" : "Pin"}">${avatar(c)}
+  return `<button class="row${unread ? " unread" : ""}" data-id="${c.key}" data-swipe="${isPinned(c) ? "Unpin" : "Pin"}" data-swipe-left="${isArchived(c) ? "Unarchive" : "Archive"}">${avatar(c)}
     <div class="meta">
       <div class="top"><span class="name">${esc(c.name)}</span><span class="time">${when(c.lastAt)}</span></div>
       <div class="bottom"><span class="ptext">${preview}</span>${badge}${isPinned(c) ? `<span class="pin">${ICON.pin}</span>` : ""}</div>
@@ -511,9 +537,9 @@ window.addEventListener("hashchange", route);
 $("#tabs").addEventListener("click", (e) => { const t = e.target.closest(".tab"); if (t) go(t.dataset.tab); });
 $("#back").onclick = () => go("chats");
 
-// The number next to the back arrow: other chats with something new.
+// The number next to the back arrow: other chats with something new (archived ones stay quiet).
 function renderBackCount() {
-  const n = [...state.chats.values()].filter((c) => c.id !== state.current && (unreadOf(c) || c.pending)).length;
+  const n = [...state.chats.values()].filter((c) => !isArchived(c) && c.id !== state.current && (unreadOf(c) || c.pending)).length;
   $("#back-count").textContent = n || "";
 }
 
@@ -999,6 +1025,7 @@ function fillInfo(c) {
   $("#info-count").textContent = c.count;
   $("#open-mac").disabled = c.status === "ended";
   $("#pin-label").textContent = isPinned(c) ? "Unpin chat" : "Pin chat";
+  $("#archive-label").textContent = isArchived(c) ? "Unarchive chat" : "Archive chat";
 }
 $("#info-screen").onclick = () => { openSheet("#screen"); pollScreen(); };
 $("#open-mac").onclick = async () => {
@@ -1014,7 +1041,7 @@ $("#rename").onclick = async () => {
 };
 $("#end-chat").onclick = async () => {
   closeSheets();
-  if (!confirm("End this chat?\n\nClaude stops and the chat leaves this list. Anything it made stays in your project folder.")) return;
+  if (!confirm("Delete this chat?\n\nClaude stops, and the conversation and any photos in it go for good. Whatever Claude built stays in your project folder.\n\nTo keep it but hide it, use Archive instead.")) return;
   try { await chatApi(cur(), "", { method: "DELETE" }); go("chats"); }
   catch (e) { toast(e.message); }
 };
@@ -1392,25 +1419,28 @@ $("#call-deny").onclick = () => answer("deny");
 // Swipe a row or a bubble to the right and it follows your finger a little way; let go past the mark
 // and it does its job. Up-and-down still scrolls (the styles give these touch-action: pan-y).
 let swipedAt = 0; // the browser ends a swipe with a tap; a tap straight after one is ignored
-function swipeable(box, selector, onSwipe) {
+function swipeable(box, selector, onRight, onLeft) {
   let s = null;
+  const marks = (dir) => (dir > 0 ? ["swiping", "swipe-ready"] : ["swiping-left", "swipe-ready-left"]);
   box.addEventListener("pointerdown", (e) => {
     const el = e.target.closest(selector);
-    s = el && e.button <= 0 ? { el, x: e.clientX, y: e.clientY, dx: 0, on: false } : null;
+    s = el && e.button <= 0 ? { el, x: e.clientX, y: e.clientY, dx: 0, on: false, dir: 0 } : null;
   });
   box.addEventListener("pointermove", (e) => {
     if (!s) return;
     const dx = e.clientX - s.x, dy = e.clientY - s.y;
     if (!s.on) {
       if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) return void (s = null); // that's a scroll
-      if (dx < 12) return;
+      if (Math.abs(dx) < 12) return;
+      if (dx < 0 && !onLeft) return void (s = null); // this one only goes right
       s.on = true;
-      s.el.classList.add("swiping");
+      s.dir = dx > 0 ? 1 : -1;
+      s.el.classList.add(marks(s.dir)[0]);
       try { box.setPointerCapture(e.pointerId); } catch {}
     }
-    s.dx = Math.max(0, Math.min(dx, 90));
+    s.dx = s.dir > 0 ? Math.max(0, Math.min(dx, 90)) : Math.min(0, Math.max(dx, -90));
     s.el.style.transform = `translateX(${s.dx}px)`;
-    s.el.classList.toggle("swipe-ready", s.dx > 60);
+    s.el.classList.toggle(marks(s.dir)[1], Math.abs(s.dx) > 60);
   });
   const end = () => {
     const done = s;
@@ -1419,9 +1449,9 @@ function swipeable(box, selector, onSwipe) {
     swipedAt = Date.now();
     done.el.style.transition = "transform .2s";
     done.el.style.transform = "";
-    done.el.classList.remove("swiping", "swipe-ready");
+    done.el.classList.remove("swiping", "swipe-ready", "swiping-left", "swipe-ready-left");
     setTimeout(() => (done.el.style.transition = ""), 220);
-    if (done.dx > 60) onSwipe(done.el);
+    if (Math.abs(done.dx) > 60) (done.dir > 0 ? onRight : onLeft)(done.el);
   };
   box.addEventListener("pointerup", end);
   box.addEventListener("pointercancel", end);
@@ -1452,8 +1482,34 @@ function togglePin(key) {
   if (cur()) fillInfo(cur());
   toast(on ? "Pinned to the top" : "Unpinned");
 }
-swipeable($("#chat-list"), ".row", (row) => togglePin(row.dataset.id));
+swipeable($("#chat-list"), ".row", (row) => togglePin(row.dataset.id), (row) => toggleArchive(row.dataset.id));
 $("#pin-chat").onclick = () => state.current && togglePin(state.current);
+
+// Archived chats are put away on the computer itself, so they stay put on any phone — and that computer
+// stops sending notifications for them. Swipe a chat left, or use Chat info.
+const isArchived = (c) => !!c.archived;
+async function toggleArchive(key) {
+  const c = state.chats.get(key);
+  if (!c) return;
+  const archived = !isArchived(c);
+  try {
+    await chatApi(c, "", { method: "PATCH", body: { archived } });
+    toast(archived ? "Archived — it's in the Archived row" : "Back in your chats");
+  } catch (e) { toast(e.message); }
+}
+$("#archive-chat").onclick = () => { closeSheets(); if (state.current) toggleArchive(state.current); };
+
+// Settings → a clear-out of everything that has stopped.
+$("#delete-stopped").onclick = async () => {
+  const stopped = [...state.chats.values()].filter((c) => c.status === "ended");
+  if (!stopped.length) return toast("No stopped chats to delete.");
+  if (!confirm(`Delete ${stopped.length} stopped chat${stopped.length > 1 ? "s" : ""}?\n\nTheir conversations and any photos in them go for good. Chats that are still running are left alone, and whatever Claude built stays in your project folders.`)) return;
+  let deleted = 0;
+  for (const comp of state.computers.filter((x) => x.online)) {
+    try { deleted += (await api("/api/chats/stopped", { method: "DELETE" }, comp)).deleted || 0; } catch (e) { toast(e.message); }
+  }
+  toast(deleted ? `Deleted ${deleted} stopped chat${deleted > 1 ? "s" : ""}.` : "Nothing was deleted.");
+};
 
 // ── search inside a chat (Chat info → Search) ──────────────────────────────
 // Every match in the chat is marked. It starts at the newest; the arrows step through the rest.
