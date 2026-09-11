@@ -72,7 +72,8 @@
   }
 }
 
-* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+/* touch-action: manipulation — scrolling works, double-tap doesn't zoom. */
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 [hidden] { display: none !important; }
 /* The page itself must be --app-h tall too, not 100%. With the see-through status bar, a Home Screen
    app whose page is 100% tall gets the short, non-see-through size (812 of 874 on an iPhone 17 Pro, 2026-09-11)
@@ -104,8 +105,10 @@ svg { display: block; flex: none; }
 /* ── a screen ── */
 .view { position: fixed; top: 0; left: 0; right: 0; height: var(--app-h); z-index: 1; display: flex; flex-direction: column; }
 .view::before { content: ""; position: absolute; inset: 0; z-index: -1; background: var(--wash); }
+/* overflow-x: hidden — the swipe labels sit just outside each row, and without it the whole list could
+   be dragged sideways. */
 .page {
-  flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch;
   /* just enough to clear the floating bar (about 73px tall, 12px off the bottom) */
   padding: 0 16px calc(env(safe-area-inset-bottom) + 96px);
 }
@@ -208,8 +211,11 @@ svg { display: block; flex: none; }
   position: relative; display: flex; align-items: center; gap: 12px; width: 100%; margin-bottom: 8px; padding: 12px 14px;
   border-radius: var(--radius); background: var(--panel); border: 1px solid var(--line); text-align: left;
   backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); touch-action: pan-y;
+  -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; /* holding opens our menu, not Safari's */
 }
 .row:active { background: var(--panel-2); }
+.row.holding { transform: scale(.97); transition: transform .45s; } /* sinks a little while you hold it */
+#row-menu-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60vw; }
 .row.unread { border-color: rgba(255, 152, 16, .5); }
 .row::before {
   content: attr(data-swipe); position: absolute; left: -76px; top: 50%; width: 64px; height: 30px; margin-top: -15px;
@@ -318,7 +324,7 @@ svg { display: block; flex: none; }
   content: ""; position: absolute; inset: 0; z-index: -1;
   background: radial-gradient(70% 38% at 50% 46%, var(--glow-1), transparent 72%); opacity: .5;
 }
-.scroller { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 14px 10px; -webkit-overflow-scrolling: touch; }
+.scroller { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 4px 14px 10px; -webkit-overflow-scrolling: touch; }
 .messages { display: flex; flex-direction: column; }
 
 .bubble {
