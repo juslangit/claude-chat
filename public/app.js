@@ -79,6 +79,7 @@ const ICON = {
   command: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M14.5 4.5 9.5 19.5"/><path d="M6 8.5 2.5 12 6 15.5M18 8.5 21.5 12 18 15.5"/></svg>`,
   archive: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4.5" rx="1.2"/><path d="M4.8 8.5h14.4V19a1.2 1.2 0 0 1-1.2 1.2H6a1.2 1.2 0 0 1-1.2-1.2z"/><path d="M10 12.5h4"/></svg>`,
   back: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12H4M10 6l-6 6 6 6"/></svg>`,
+  file: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M13.5 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8.5z"/><path d="M13.5 3v5.5H19"/></svg>`,
 };
 
 // Talk to a computer's server (this one unless another is given).
@@ -673,6 +674,16 @@ function addMessage(box, m) {
     group.tools = null;
     return;
   }
+  if (m.role === "file") {
+    // Claude sent something over: a render, a screenshot, a document.
+    box.append(el("div", "bubble in file-msg",
+      `<div class="file-top">${ICON.file}<b>Claude sent you a file</b></div>
+       ${fileHtml(m)}${m.caption ? `<div class="file-caption">${esc(m.caption)}</div>` : ""}
+       <span class="spacer"></span><span class="stamp">${clock(m.at)}</span>`));
+    group.side = null;
+    group.tools = null;
+    return;
+  }
   if (m.role === "command") {
     // One of Claude Code's own commands, and what the Terminal showed for it.
     box.append(el("div", "bubble in command",
@@ -711,7 +722,8 @@ function addMessage(box, m) {
   const pic = side === "out" ? splitPhoto(replied.text) : { photo: null, text: m.text };
   const quote = replied.quote ? `<span class="quote"><b>${replied.who}</b>${esc(replied.quote)}</span>` : "";
   const photo = pic.photo ? `<img class="photo" src="${esc(photoUrl(pic.photo))}" alt="Photo you sent">` : "";
-  const body = side === "in" ? md(m.text) : quote + photo + esc(pic.text);
+  // Files Claude named in its reply are shown underneath it, so a render doesn't stay a file path.
+  const body = side === "in" ? md(m.text) + (m.files || []).map((f) => fileHtml(f)).join("") : quote + photo + esc(pic.text);
   const voice = spoken.kind ? ICON[spoken.kind === "call" ? "phone" : "mic"] : ""; // said out loud, not typed
   const bubble = el("div", `bubble ${side}${group.side === side ? "" : " tail"}`,
     `${body}<span class="spacer${side === "out" ? " wide" : ""}${voice ? " voiced" : ""}"></span><span class="stamp">${voice}${clock(m.at)}${side === "out" ? ICON.ticks : ""}</span>`);
@@ -1585,6 +1597,18 @@ $("#info-search").onclick = () => { closeSheets(); openFind(); };
 
 let photo = null; // { url, data } of the photo waiting to be sent
 const photoUrl = (name) => { const c = cur(); return c ? `${compOf(c).base}/api/chats/${c.id}/photos/${name}` : ""; };
+
+// ── files coming back from Claude ──────────────────────────────────────────
+// A picture shows as a picture, a clip plays, anything else is a card you can tap to open or save.
+const fileUrl = (token) => { const c = cur(); return c ? `${compOf(c).base}/api/chats/${c.id}/files/${token}` : ""; };
+const fileSize = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1e3))} KB`);
+function fileHtml(f) {
+  const url = esc(fileUrl(f.token));
+  if (f.kind === "image") return `<img class="photo" src="${url}" alt="${esc(f.name)}" loading="lazy">`;
+  if (f.kind === "video") return `<video class="photo" src="${url}" controls playsinline preload="metadata"></video>`;
+  return `<a class="file-card" href="${url}" target="_blank" rel="noopener">${ICON.file}
+    <span class="file-text"><b>${esc(f.name)}</b><small>${fileSize(f.size)} · tap to open</small></span></a>`;
+}
 $("#attach").onclick = () => $("#photo-input").click();
 $("#photo-input").onchange = async (e) => {
   const file = e.target.files?.[0];
