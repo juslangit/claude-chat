@@ -184,6 +184,12 @@ try {
   check("swiping a chat does nothing now — holding it is the way", await js(`!!document.querySelector('${rowSel}')`) && !(await js(menuOpen)) && (await one(A.id))?.archived === false);
   await menu(A.id, "row-archive");
   check("hold → Archive archives it", await until(`document.querySelectorAll("#chat-list .row").length === 0`, 6000));
+  check("…and the note offers Undo", await until(`(() => { const b = document.querySelector("#toast:not([hidden]) .toast-action"); return b?.textContent === "Undo"; })()`, 3000));
+  await shot("0b-undo");
+  await js(`document.querySelector("#toast .toast-action").click(); true`);
+  check("Undo brings it straight back, on the computer too", await until(`document.querySelectorAll("#chat-list .row").length === 1`, 6000) && (await one(A.id))?.archived === false);
+  await menu(A.id, "row-archive"); // archived again, for the checks below
+  await until(`document.querySelectorAll("#chat-list .row").length === 0`, 6000);
   check("…the Archived row appears with a count", await js(`(() => { const r = document.querySelector("#archived-row"); return !r.hidden && r.textContent.includes("Archived") && r.textContent.includes("1"); })()`));
   check("…and the computer knows, not just the phone", (await one(A.id))?.archived === true);
   await shot("1-list-archived");
@@ -264,6 +270,9 @@ try {
   await js(`document.querySelector("#pick-archive").click(); true`);
   check("Archive archives every ticked chat, and only those", await until(`!document.querySelector('${rowSel}') && !document.querySelector('${rowOf(C.id)}')`, 6000) && (await one(A.id))?.archived === true && (await one(C.id))?.archived === true && (await one(E.id))?.archived === false);
   check("…and selecting ends", await js(`document.querySelector("#pick-bar").hidden && !document.querySelector("#tabs").hidden && document.querySelector("#nav-title").textContent === "Chats"`));
+  check("…the note offers Undo for both", await until(`(() => { const t = document.querySelector("#toast"); return !t.hidden && t.textContent.startsWith("Archived 2 chats") && !!t.querySelector(".toast-action"); })()`, 3000), await js(`document.querySelector("#toast").textContent`));
+  await js(`document.querySelector("#toast .toast-action").click(); true`);
+  check("Undo unarchives exactly those two", await until(`!!document.querySelector('${rowSel}') && !!document.querySelector('${rowOf(C.id)}')`, 6000) && (await one(A.id))?.archived === false && (await one(C.id))?.archived === false && (await one(E.id))?.archived === false);
   for (const x of [A, C]) await req("PATCH", `/api/chats/${x.id}`, { body: { archived: false } });
   await until(`!!document.querySelector('${rowSel}') && !!document.querySelector('${rowOf(C.id)}')`, 6000);
   await menu(C.id, "row-select");
