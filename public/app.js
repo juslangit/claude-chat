@@ -80,6 +80,7 @@ const ICON = {
   archive: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4.5" rx="1.2"/><path d="M4.8 8.5h14.4V19a1.2 1.2 0 0 1-1.2 1.2H6a1.2 1.2 0 0 1-1.2-1.2z"/><path d="M10 12.5h4"/></svg>`,
   back: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12H4M10 6l-6 6 6 6"/></svg>`,
   file: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M13.5 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8.5z"/><path d="M13.5 3v5.5H19"/></svg>`,
+  tick: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12.5l5 5 10-11"/></svg>`,
 };
 
 // Talk to a computer's server (this one unless another is given).
@@ -378,7 +379,8 @@ function renderList() {
     : `<div class="empty">${state.archivedView ? "Nothing archived."
       : !all.length ? "No chats yet.<br>Tap <b>+</b> to start one — a Terminal window opens on the computer, ready to go."
       : NOTHING[state.filter]}</div>`;
-  for (const chip of document.querySelectorAll(".chip")) chip.classList.toggle("on", chip.dataset.filter === state.filter);
+  // Only this list's own chips — the sheets have chips of their own that aren't filters.
+  for (const chip of $("#chips").children) chip.classList.toggle("on", chip.dataset.filter === state.filter);
   const stopped = all.filter((c) => c.status === "ended").length;
   $("#stopped-count").textContent = stopped || "";
   $("#delete-stopped").disabled = !stopped;
@@ -520,6 +522,7 @@ function route() {
     renderList(); // which also refreshes Home
     renderComputers();
     if (tab === "computers") { $("#add-box").hidden = true; findComputers(); }
+    if (tab === "settings") { accountOn = home; loadProfile(); } // so the face on the bar is the account in use
     return;
   }
   state.lastStep = null; // the progress bubble only ever shows this chat's steps
@@ -1060,6 +1063,8 @@ function fillInfo(c) {
   $("#info-sub").textContent = `Claude Code on your Mac · ${c.status === "ended" ? "stopped" : "running"}`;
   $("#info-folder").textContent = c.project || "Whole project folder";
   $("#info-computer").textContent = compOf(c).name || "This computer";
+  $("#info-account-row").hidden = !c.account;   // which Claude account this chat is running on
+  $("#info-account").textContent = c.account || "";
   $("#open-mac-label").textContent = compOf(c).os === "windows" ? "Open on PC" : "Open on Mac";
   $("#info-started").textContent = new Date(c.createdAt).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
   $("#info-count").textContent = c.count;
@@ -1868,6 +1873,201 @@ $("#commands").addEventListener("click", async (e) => {
     if (card?.asks) { openSheet("#screen"); pollScreen(); } // it wants you to pick something
   } catch (err) { toast(err.message); }
 });
+
+// ── your Claude account ────────────────────────────────────────────────────
+//
+// Claude Code signs in once per computer and keeps that login in the Mac's Keychain, so there was no
+// way to move from the Max account to the Pro one without sitting at the computer. This shows which
+// account is in use and whether it's Pro or Max, and switches between them in a tap. A second account
+// is added as a year-long token, which the computer's server keeps with its other keys.
+
+let accountOn = home;      // the computer whose account is on screen
+let profileState = null;   // what its server last said
+let profileTimer = null;
+
+$("#profile-btn").onclick = () => {
+  openSheet("#profile-sheet");
+  accountOn = home;
+  $("#profile-login").hidden = true;
+  $("#profile-add").hidden = false;
+  $("#profile-head").innerHTML = `<small>Looking…</small>`;
+  $("#profile-list").innerHTML = "";
+  loadProfile();
+};
+
+async function loadProfile() {
+  const comp = accountOn;
+  try {
+    const data = await api("/api/accounts", { timeout: 15000 }, comp);
+    if (comp !== accountOn) return;
+    profileState = data;
+    renderProfile();
+    renderLogin();
+  } catch (e) {
+    if (comp === accountOn) $("#profile-head").innerHTML = `<small>${esc(e.message)}</small>`;
+  }
+}
+
+// Each account gets the same face the chat list would give it, so it is recognisable at a glance.
+const accountFace = (a, size) => avatar({ id: `${a.id}${a.email || ""}`, name: a.label }, size);
+
+function renderProfile() {
+  const d = profileState;
+  if (!d) return;
+  const online = state.computers.filter((c) => c.online);
+  $("#profile-computers").hidden = online.length < 2;
+  $("#profile-computers").innerHTML = online.map((c) =>
+    `<button class="chip${c === accountOn ? " on" : ""}" data-comp="${c.id}">${esc(c.name || "This computer")}</button>`).join("");
+
+  const me = d.accounts.find((a) => a.id === d.current) || d.accounts[0];
+  // The face on the Settings bar is the account in use, so a glance says which one you're on.
+  if (me && accountOn === home) $("#profile-btn").innerHTML = accountFace(me, "small");
+  $("#profile-head").innerHTML = me ? `
+    ${accountFace(me, "big")}
+    <b>${esc(me.label)}</b>
+    ${me.email ? `<small>${esc(me.email)}</small>` : ""}
+    ${me.org ? `<small>${esc(me.org)}</small>` : ""}
+    <span class="plan-chip${me.plan ? "" : " none"}">${esc(me.plan ? `Claude ${me.plan}` : "No subscription found")}</span>`
+    : `<small>No Claude account is signed in on this computer.</small>`;
+
+  $("#profile-list").innerHTML = d.accounts.map((a) => `
+    <button class="cell pick account-row" data-account="${esc(a.id)}">
+      ${accountFace(a, "small")}
+      <span class="pick-text"><b>${esc(a.label)}</b><small>${esc(a.email || (a.signedIn ? "Signed in on this computer" : "Added from your phone"))}</small></span>
+      ${a.plan ? `<span class="plan-tag">${esc(a.plan)}</span>` : ""}
+      ${a.id === d.current ? `<span class="tick">${ICON.tick}</span>` : ""}
+    </button>`).join("");
+
+  $("#profile-note").textContent = online.length < 2
+    ? "New chats run on the account with the tick. Chats already going keep the account they started on."
+    : `New chats on ${accountOn.name || "this computer"} run on the account with the tick. Each computer chooses its own.`;
+  // While an account is being added, the form has the sheet to itself.
+  const busy = !$("#profile-login").hidden;
+  $("#profile-add").hidden = busy;
+  // Only an added account can be taken away — the one the computer is signed in to belongs to Claude Code.
+  $("#profile-remove").hidden = busy || !me || me.signedIn;
+}
+
+const closeAddForm = () => { $("#profile-login").hidden = true; renderProfile(); };
+
+$("#profile-computers").addEventListener("click", (e) => {
+  const comp = state.computers.find((c) => c.id === e.target.closest(".chip")?.dataset.comp);
+  if (!comp || comp === accountOn) return;
+  accountOn = comp;
+  closeAddForm();
+  loadProfile();
+});
+
+$("#profile-list").addEventListener("click", async (e) => {
+  const id = e.target.closest(".account-row")?.dataset.account;
+  if (!id || id === profileState?.current) return;
+  try {
+    profileState = { ...profileState, ...await api("/api/accounts/use", { body: { id } }, accountOn) };
+    renderProfile();
+    toast(`New chats will use ${profileState.accounts.find((a) => a.id === id)?.label || "that account"}.`);
+  } catch (err) { toast(err.message); }
+});
+
+$("#profile-remove").onclick = async () => {
+  const me = profileState?.accounts.find((a) => a.id === profileState.current);
+  if (!me || !confirm(`Remove ${me.label}?\n\nIts token is deleted from this computer. Chats already running on it carry on; new ones go back to the signed-in account.`)) return;
+  try {
+    profileState = { ...profileState, ...await api("/api/accounts/remove", { body: { id: me.id } }, accountOn) };
+    renderProfile();
+  } catch (err) { toast(err.message); }
+};
+
+// Adding one: the computer runs `claude setup-token`, which hands back a link. Open it, sign in as
+// the other account, and paste the code it shows you — all without leaving the phone.
+$("#profile-add").onclick = () => {
+  $("#profile-login").hidden = false;
+  $("#profile-add").hidden = $("#profile-remove").hidden = true;
+  $("#profile-sheet .card").scrollTop = 9999;
+  $("#login-label").value = "";
+  $("#login-code").value = "";
+  $("#login-code").hidden = true;
+  $("#login-link").hidden = true;
+  $("#login-go").hidden = false;
+  $("#login-go").textContent = "Start";
+  $("#login-status").textContent = "Claude gives you a link. Open it, sign in as your other account, then paste the code back here.";
+  $("#login-label").focus();
+};
+
+$("#login-plan").addEventListener("click", (e) => {
+  const picked = e.target.closest(".chip");
+  if (picked) for (const chip of $("#login-plan").children) chip.classList.toggle("on", chip === picked);
+});
+
+$("#login-go").onclick = async () => {
+  const btn = $("#login-go");
+  btn.disabled = true;
+  try {
+    if (profileState?.adding && profileState.state === "waiting") {
+      const code = $("#login-code").value.trim();
+      if (!code) throw new Error("Paste the code from the sign-in page first.");
+      await api("/api/accounts/code", { body: { code } }, accountOn);
+      $("#login-status").textContent = "Checking the code…";
+    } else {
+      const label = $("#login-label").value.trim();
+      if (!label) throw new Error("Give the account a name, so you can tell the two apart.");
+      await api("/api/accounts/add", { body: { label, plan: $("#login-plan").querySelector(".chip.on")?.dataset.plan } }, accountOn);
+      $("#login-status").textContent = "Asking Claude for a sign-in link…";
+    }
+    pollLogin();
+  } catch (err) { toast(err.message); }
+  btn.disabled = false;
+};
+
+$("#login-cancel").onclick = async () => {
+  clearTimeout(profileTimer);
+  closeAddForm();
+  try { await api("/api/accounts/cancel", { method: "POST" }, accountOn); } catch {}
+  loadProfile();
+};
+
+function renderLogin() {
+  const d = profileState;
+  if (!d?.adding) return;
+  $("#profile-login").hidden = false;
+  const status = $("#login-status");
+  if (d.state === "starting") status.textContent = "Asking Claude for a sign-in link…";
+  if (d.state === "waiting") {
+    $("#login-link").href = d.url || "#";
+    $("#login-link").hidden = !d.url;
+    $("#login-code").hidden = false;
+    $("#login-go").textContent = "Send code";
+    status.textContent = "Open the link, sign in as your other account, then paste the code it gives you.";
+  }
+  if (d.state === "saving") status.textContent = "Saving the account…";
+  if (d.state === "added") {
+    $("#login-link").hidden = $("#login-code").hidden = $("#login-go").hidden = true;
+    status.textContent = `${d.account?.label || "The account"} is ready — new chats will use it.`;
+    setTimeout(() => { closeAddForm(); loadProfile(); }, 2500);
+  }
+  if (d.state === "failed") {
+    $("#login-go").hidden = false;
+    $("#login-go").textContent = "Try again";
+    status.textContent = d.error || "That didn't work.";
+  }
+}
+
+// While an account is being added, ask the computer every couple of seconds how far it has got.
+function pollLogin() {
+  clearTimeout(profileTimer);
+  profileTimer = setTimeout(async () => {
+    if ($("#profile-sheet").hidden) return;
+    const busy = ["starting", "waiting", "saving"];
+    try {
+      const comp = accountOn;
+      const data = await api("/api/accounts", { timeout: 15000 }, comp);
+      if (comp !== accountOn) return;
+      profileState = data;
+      renderProfile();
+      renderLogin();
+      if (data.adding && busy.includes(data.state)) pollLogin();
+    } catch { pollLogin(); }
+  }, 2000);
+}
 
 // ── keep the typing bar above the iPhone keyboard ──────────────────────────
 

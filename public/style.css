@@ -95,12 +95,16 @@ svg { display: block; flex: none; }
 .s3 { top: 82%; transform: rotate(-4deg); opacity: .3; }
 
 /* ── a screen ── */
-.view { position: fixed; inset: 0; z-index: 1; height: 100dvh; display: flex; flex-direction: column; }
+/* inset alone fills the window; adding a height as well leaves a gap under the app on an iPhone */
+.view { position: fixed; inset: 0; z-index: 1; display: flex; flex-direction: column; }
 .view::before { content: ""; position: absolute; inset: 0; z-index: -1; background: var(--wash); }
 .page {
   flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
-  padding: 0 16px calc(env(safe-area-inset-bottom) + 112px);
+  /* just enough to clear the floating bar (about 73px tall, 12px off the bottom) */
+  padding: 0 16px calc(env(safe-area-inset-bottom) + 96px);
 }
+/* Home has no top bar of its own, so it needs the clearance the bars give the other screens. */
+#home-view .page { padding-top: calc(env(safe-area-inset-top) + 8px); }
 
 /* ── top bars ── */
 .nav {
@@ -267,7 +271,7 @@ svg { display: block; flex: none; }
 
 /* ── the floating bar at the bottom ── */
 .tabs {
-  position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 14px); z-index: 6; transform: translateX(-50%);
+  position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 12px); z-index: 6; transform: translateX(-50%);
   display: flex; gap: 4px; padding: 8px; border-radius: 30px; width: max-content; max-width: calc(100% - 28px);
   background: var(--glass); border: 1px solid var(--line); box-shadow: var(--shadow);
   backdrop-filter: blur(22px) saturate(1.3); -webkit-backdrop-filter: blur(22px) saturate(1.3);
@@ -500,8 +504,12 @@ svg { display: block; flex: none; }
 .sheet-nav .link.right { justify-self: end; font-weight: 600; }
 .card.tall, .card.screen, .card.photo { height: 94dvh; }
 .card .search { margin: 0; }
-.btn { flex: none; width: 100%; height: 52px; margin-top: 12px; border-radius: 18px; font-size: 1rem; font-weight: 600; }
+.btn {
+  flex: none; width: 100%; height: 52px; margin-top: 12px; border-radius: 18px; font-size: 1rem; font-weight: 600;
+  background: var(--accent); color: var(--accent-ink);
+}
 .btn.plain { background: var(--panel); border: 1px solid var(--line); color: var(--accent-text); }
+.btn.plain.danger { color: var(--danger); }
 
 .group { flex: none; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
 .cell { display: flex; justify-content: space-between; align-items: center; gap: 12px; width: 100%; padding: 15px 16px; border-bottom: 1px solid var(--line); font-size: 1rem; text-align: left; }
@@ -518,6 +526,27 @@ svg { display: block; flex: none; }
 .computer .state { color: var(--muted); font-size: .86rem; }
 .computer .state.on { color: var(--live); }
 .sheet-note { margin: 0 4px; color: var(--faint); font-size: .82rem; line-height: 1.45; }
+
+/* ── your Claude account ── */
+.profile-btn { flex: none; border-radius: 50%; }
+.profile-head { flex: none; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 4px 0 2px; text-align: center; }
+.profile-head .avatar { margin-bottom: 8px; }
+.profile-head b { font-size: 1.16rem; font-weight: 700; }
+.profile-head small { color: var(--muted); font-size: .86rem; }
+/* the badge that says Pro or Max — the thing he opens this sheet to check */
+.plan-chip {
+  margin-top: 8px; padding: 5px 14px; border-radius: 14px; font-size: .82rem; font-weight: 700; letter-spacing: .01em;
+  background: var(--accent); color: var(--accent-ink);
+}
+.plan-chip.none { background: var(--panel-2); color: var(--muted); font-weight: 600; }
+.account-row .tick { flex: none; color: var(--accent-text); }
+.account-row .plan-tag { flex: none; padding: 3px 9px; border-radius: 10px; background: var(--code); color: var(--accent-text); font-size: .74rem; font-weight: 700; }
+.field {
+  flex: none; width: 100%; height: 50px; margin-top: 10px; padding: 0 16px; border-radius: 16px; outline: 0;
+  background: var(--panel); border: 1px solid var(--line); color: var(--ink); font: inherit; font-size: 1rem;
+}
+.field::placeholder { color: var(--muted); }
+a.btn { display: grid; place-items: center; text-decoration: none; }
 .add-box { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 14px; border-radius: var(--radius); background: var(--panel); border: 1px solid var(--line); font-size: .9rem; line-height: 1.45; }
 .add-box p { margin: 0; }
 .add-box .line { display: block; padding: 10px 12px; border-radius: 10px; background: var(--code); overflow-wrap: anywhere; font: .76rem/1.45 ui-monospace, Menlo, monospace; -webkit-user-select: all; user-select: all; }
