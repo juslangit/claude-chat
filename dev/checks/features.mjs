@@ -227,6 +227,18 @@ try {
   check("the phone turns the key into the 65 bytes Apple wants", await js(`fetch("/api/push/key").then((r) => r.json()).then((j) => fromB64u(j.key).length === 65 && toB64u(fromB64u(j.key)) === j.key)`));
   const quiet = received.length;
 
+  // the typing box sits beside Send (not across the whole screen) and gets taller as you add lines
+  const typeIn = (text) => js(`(() => { const i = document.querySelector("#input"); i.value = ${JSON.stringify(text)}; i.dispatchEvent(new Event("input", { bubbles: true })); return true; })()`);
+  const box = () => js(`(() => { const i = document.querySelector("#input"), s = document.querySelector("#send").getBoundingClientRect();
+    return { field: Math.round(i.parentElement.getBoundingClientRect().width), h: Math.round(i.getBoundingClientRect().height), sendRight: Math.round(s.right), sendShown: s.width > 0, screen: innerWidth }; })()`);
+  await typeIn("one");
+  const b1 = await box();
+  check("the typing box leaves room for Send", b1.sendShown && b1.sendRight <= b1.screen && b1.field < b1.screen - 60, JSON.stringify(b1));
+  await typeIn("one\ntwo\nthree");
+  const b3 = await box();
+  check("…and grows as you add lines", b3.h > b1.h + 20, `${b1.h} → ${b3.h}`);
+  await typeIn("");
+
   // photo: a red picture, sent the way the + button sends it
   await js(`(async () => {
     const cv = Object.assign(document.createElement("canvas"), { width: 2400, height: 1800 });
