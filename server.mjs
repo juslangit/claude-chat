@@ -229,6 +229,7 @@ function summary(c) {
   const r = rt(c.id);
   return {
     id: c.id, name: c.name, createdAt: c.createdAt, alive: r.alive, archived: !!c.archived,
+    pinnedAt: c.pinnedAt || null, seen: c.seen || 0, // kept here, so every link and phone shows the same
     project: c.cwd && c.cwd !== WORKDIR ? path.basename(c.cwd) : null,
     status: r.alive ? r.status : "ended",
     lastText: r.lastText, lastAt: r.lastAt || c.createdAt, count: r.count,
@@ -893,7 +894,7 @@ function handleHook(chatId, ev, res) {
         c.sessionId = ev.session_id;
         r.offset = 0;
         r.tokens = 0; // a cleared or resumed session starts with an empty memory
-        if (ev.source === "resume") { r.messages = []; r.count = 0; broadcast({ type: "reset", chatId }); }
+        if (ev.source === "resume") { r.messages = []; r.count = 0; c.seen = 0; broadcast({ type: "reset", chatId }); }
         else pushSystem(chatId, ev.source === "clear" ? "Conversation cleared" : "New session");
         save();
       }
@@ -1179,13 +1180,17 @@ async function api(req, res, url) {
       if (!r.alive) { await startClaude(c, { resume: true }); openTerminal(c).catch((e) => console.error("could not open Terminal:", e.message)); }
       return json(res, { ok: true });
     case "PATCH ": {
-      // Rename, or archive: an archived chat keeps running and keeps everything, it just leaves the list
-      // on the phone and stops sending notifications.
+      // Rename, archive, pin, or mark read. An archived chat keeps running and keeps everything, it just
+      // leaves the list on the phone and stops sending notifications. Pins and read marks are kept here, on
+      // the chat's computer, so every link (each computer's own app) and every phone shows the same.
       const b = await body(req);
       const name = String(b.name || "").trim().slice(0, 60);
       if (name) { c.name = name; c.autoName = false; }
       if ("archived" in b) c.archived = !!b.archived;
-      if (name || "archived" in b) { save(); chatChanged(id); }
+      if ("pinned" in b) c.pinnedAt = b.pinned ? c.pinnedAt || Date.now() : null;
+      // how many of Claude's replies you've read: only ever goes up, and never past what's there
+      if (Number.isFinite(b.seen)) c.seen = Math.max(c.seen || 0, Math.min(Math.floor(b.seen), r.count));
+      if (name || ["archived", "pinned", "seen"].some((k) => k in b)) { save(); chatChanged(id); }
       return json(res, summary(c));
     }
     case "DELETE ":
@@ -1221,10 +1226,15 @@ async function codeState() {
   }
 }
 
+// Each computer's page is its own Home Screen app, named after the kind of computer ("Claude Mac",
+// "Claude PC"), so two icons on the iPhone can be told apart.
+const APP_NAME = OS === "windows" ? "Claude PC" : OS === "mac" ? "Claude Mac" : "Claude";
+
 function serveStatic(pathname, res) {
   const file = path.normalize(path.join(PUBLIC, pathname === "/" ? "index.html" : pathname));
   if (!file.startsWith(PUBLIC + path.sep) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) throw fail("Not found", 404);
   res.writeHead(200, { "content-type": TYPES[path.extname(file)] || "application/octet-stream", "cache-control": "no-cache" });
+  if (/[\\/](index\.html|manifest\.json)$/.test(file)) return res.end(fs.readFileSync(file, "utf8").replaceAll("Claude Chats", APP_NAME));
   fs.createReadStream(file).pipe(res);
 }
 

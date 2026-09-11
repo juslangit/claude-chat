@@ -42,11 +42,11 @@ const SAMPLE = `(() => {
     pending: { reqId: "r1", tool: "Bash", detail: "npm run deploy -- --prod", why: "Publish the quote page", questions: null } }) });
   onEvent({ type: "chat", chat: mk("a3", "kedai-runtuh", { lastText: "You: add a new shelf sprite for the drinks", lastAt: now - 36e5, project: "kedai-runtuh" }) });
   onEvent({ type: "chat", chat: mk("a5", "sky", { status: "ended", lastText: "Session finished.", lastAt: now - 9e6, count: 2 }) });
-  state.seen = { a1: 4, a2: 3, a3: 3, a4: 3, a5: 2 };
+  for (const [id, seen] of Object.entries({ a1: 4, a2: 3, a3: 3, a4: 3, a5: 2 })) state.chats.get(`home/${id}`).seen = seen;
   if (!state.computers.some((c) => c.id === "pc")) {
     state.computers.push({ id: "pc", base: "", name: "DESKTOP-K2M7L30", os: "windows", online: false, offlineSince: now - 52e5 });
   }
-  state.pinned = ["home/a1"];
+  state.chats.get("home/a1").pinnedAt = now;
   renderList(); renderComputers();
   return true;
 })()`;

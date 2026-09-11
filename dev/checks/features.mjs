@@ -313,7 +313,7 @@ try {
   await js(`dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: 8, pointerType: "touch", isPrimary: true })); true`);
   await sleep(500);
   await js(`document.querySelector("#row-pin").click(); true`);
-  check("…and Pin pins it to the top", await until(`(() => { const r = document.querySelector("#chat-list .row"); return r.dataset.id === "home/${A.id}" && !!r.querySelector(".pin") && JSON.parse(localStorage.pinned).includes("home/${A.id}"); })()`, 3000));
+  check("…and Pin pins it to the top", await until(`(() => { const r = document.querySelector("#chat-list .row"); return r.dataset.id === "home/${A.id}" && !!r.querySelector(".pin") && !!state.chats.get("home/${A.id}")?.pinnedAt; })()`, 3000));
   check("…without also opening the chat", await js(`location.hash === "#chats"`));
   await shot("list-pinned");
   await js(`go("settings"); true`);
@@ -323,7 +323,7 @@ try {
   await js(`closeSheets(); go("chat/home/${A.id}"); true`);
   await sleep(800);
   await js(`document.querySelector("#chat-head").click(); document.querySelector("#pin-chat").click(); closeSheets(); go("chats"); true`);
-  check("Chat info → Unpin puts it back", await until(`document.querySelector("#chat-list .row").dataset.id === "home/${B.id}" && JSON.parse(localStorage.pinned).length === 0`, 3000));
+  check("Chat info → Unpin puts it back", await until(`document.querySelector("#chat-list .row").dataset.id === "home/${B.id}" && ![...state.chats.values()].some(isPinned)`, 3000));
   check("no errors in the page", errors.length === 0, errors.join(" | "));
 
   // leave the app: the computer is told, and notifications come again

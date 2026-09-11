@@ -219,11 +219,11 @@ try {
   check("…letting go keeps it open, without opening the chat", await js(`${menuOpen} && location.hash === "#chats"`), await js("location.hash"));
   await shot("0-hold-menu");
   await js(`document.querySelector("#row-pin").click(); true`);
-  check("menu → Pin pins it", await until(`state.pinned.includes("home/${A.id}") && !!document.querySelector('${rowSel} .pin')`, 3000));
+  check("menu → Pin pins it", await until(`isPinned(state.chats.get("home/${A.id}")) && !!document.querySelector('${rowSel} .pin')`, 3000));
   await hold(); await letGo();
   check("…then the menu offers Unpin", (await label("row-pin-label")) === "Unpin chat");
   await js(`document.querySelector("#row-pin").click(); true`);
-  check("menu → Unpin unpins it", await until(`!state.pinned.includes("home/${A.id}")`, 3000));
+  check("menu → Unpin unpins it", await until(`!isPinned(state.chats.get("home/${A.id}"))`, 3000) && !(await one(A.id))?.pinnedAt);
   await hold(); await letGo();
   await js(`document.querySelector("#row-archive").click(); true`);
   check("menu → Archive archives it on the computer", await until(`!document.querySelector('${rowSel}')`, 6000) && (await one(A.id))?.archived === true);
