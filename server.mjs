@@ -949,6 +949,12 @@ async function api(req, res, url) {
 
   // Notifications: the phone says when it's being looked at, asks for the signing key's public half,
   // hands over (or takes back) its push address, and can ask for a test one.
+  // What size the phone says its screen is — for chasing gaps at the top or bottom of the app.
+  if (url.pathname === "/api/viewport" && req.method === "POST") {
+    const report = JSON.stringify({ at: new Date().toISOString(), ...(await body(req, 4000)) });
+    fs.appendFile(path.join(DATA, "viewport.log"), report + "\n", () => {});
+    return json(res, { ok: true });
+  }
   if (url.pathname === "/api/presence" && req.method === "POST") {
     lookingUntil = (await body(req)).looking ? Date.now() + 45000 : 0;
     return json(res, { ok: true });
