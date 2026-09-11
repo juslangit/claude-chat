@@ -2,13 +2,13 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<!-- "black", not "black-translucent": with the see-through status bar the iPhone drew the page from
-     the very top of the screen but only gave it the height left over after the notch and the home
-     indicator, so the greeting hid under the Dynamic Island and a tall black band sat under the app. -->
-<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<!-- See-through status bar, so the app runs to the very top of the screen. The iPhone gives a Home
+     Screen app a short, wrong size for inset: 0 / 100% / 100dvh when it starts, which once left a tall
+     black band under the app; the screens take their height from --app-h (100vh there) instead. -->
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Claude Chats">
 <meta name="theme-color" content="#fff5ef" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
