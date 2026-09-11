@@ -358,6 +358,20 @@ svg { display: block; flex: none; }
 .tools-list li.error::before { content: "✕ "; }
 .tools-list li.error, .tools-sum .last.error { color: var(--danger); }
 
+/* something Claude sent over: a render, a screenshot, a document */
+.bubble.file-msg { width: 92%; padding: 11px 13px 12px; white-space: normal; }
+.file-top { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; color: var(--accent-text); font-size: .84rem; }
+.file-top b { color: var(--ink); font-weight: 600; }
+.file-caption { margin-top: 6px; font-size: .94rem; line-height: 1.4; }
+.file-card {
+  display: flex; align-items: center; gap: 11px; padding: 12px 13px; border-radius: 14px; text-decoration: none;
+  background: var(--code); border: 1px solid var(--line); color: var(--ink);
+}
+.file-text { min-width: 0; display: flex; flex-direction: column; }
+.file-text b { font-weight: 600; overflow-wrap: anywhere; }
+.file-text small { margin-top: 2px; color: var(--muted); font-size: .8rem; }
+.bubble.in .file-card { margin-top: 6px; }
+
 /* a command's answer, read off the Terminal */
 .bubble.command { width: 94%; padding: 11px 13px; white-space: normal; }
 .command-top { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: .84rem; }
