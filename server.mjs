@@ -1,4 +1,4 @@
-// claude-chat — use Claude Code on this Mac from a phone, like a chat app.
+// claude-chat — use Claude Code on this Mac or Windows PC from a phone, like a chat app.
 //
 // How the pieces fit:
 //
@@ -496,9 +496,25 @@ setInterval(async () => {
 
 // ── driving claude inside tmux ─────────────────────────────────────────────────────────────
 
-// Chats run with bypassPermissions, like plain `claude` on this Mac: nothing asks first. The deny
-// list in ~/.claude/settings.json (sudo, rm -rf, force-push…) still applies, and anything Claude Code
-// asks about anyway still reaches the phone through the PermissionRequest hook.
+// Chats ask permission the way plain `claude` does on this computer: permissions.defaultMode in
+// ~/.claude/settings.json. On Luqman's computers that's bypassPermissions (D-006) — nothing asks first,
+// and only the deny list there (sudo, rm -rf, force-push…) stops anything. With no mode set, as on a
+// fresh install, file edits go ahead and everything else is asked on the phone (acceptEdits, D-003):
+// Claude Code's own default would stop for every single edit. Read each time a chat starts, so a
+// change to the setting applies to the next new chat.
+function permissionMode() {
+  try {
+    const mode = JSON.parse(fs.readFileSync(path.join(HOME, ".claude/settings.json"), "utf8")).permissions?.defaultMode;
+    if (typeof mode === "string" && mode) return mode;
+  } catch {}
+  return "acceptEdits";
+}
+
+// Luqman keeps his knowledge in Sky AI Brain (D-026). On a computer that has its `mem` tool, chats turn
+// Claude Code's own memory off and are told to save with `mem remember` instead. Everywhere else,
+// Claude Code's memory works as usual. Looked for each time, since Syncthing may bring the tool later.
+const hasMem = () => fs.existsSync(path.join(HOME, ".local/bin/mem"));
+
 // On a Windows PC, Claude runs in WSL with start.sh's short Linux PATH, so it couldn't find Windows'
 // own tools (PowerShell, cmd, Windows Terminal, winget) without being told where they are. Add the
 // Windows folders that exist, after the Linux ones so Linux tools still come first.
@@ -514,20 +530,20 @@ const WSL_PATH = [process.env.PATH, ...WINDOWS_DIRS].filter(Boolean).join(":");
 // Claude can't know it's being read on a phone unless it's told, and then it can send things back.
 const PHONE_NOTE = "This session is mirrored to an iPhone by claude-chat, so your replies are read there. " +
   "To show a file on that phone — a render, a screenshot, a diagram, a document — run: cchat send <path> [caption]. " +
-  "Writing a file's full path in your reply also makes it appear there, so mention where you saved things. " +
-  "Claude Code's built-in memory is switched off in these chats: save anything worth remembering to Sky AI Brain " +
-  "(Supabase) with `mem remember`, as ~/.claude/CLAUDE.md describes.";
+  "Writing a file's full path in your reply also makes it appear there, so mention where you saved things.";
+const MEM_NOTE = " Claude Code's built-in memory is switched off in these chats: save anything worth remembering to " +
+  "Sky AI Brain (Supabase) with `mem remember`, as ~/.claude/CLAUDE.md describes.";
 
 async function startClaude(c, { resume = false } = {}) {
+  const mem = hasMem();
   const args = [CLAUDE, resume ? "--resume" : "--session-id", c.sessionId, "-n", c.name,
-    "--permission-mode", "bypassPermissions", "--settings", HOOKS_FILE, "--append-system-prompt", PHONE_NOTE];
+    "--permission-mode", permissionMode(), "--settings", HOOKS_FILE, "--append-system-prompt", PHONE_NOTE + (mem ? MEM_NOTE : "")];
   // A chat keeps the account it was started with; a resumed one goes back on the same account.
   if (!resume) { c.account = currentAccount; save(); }
   const token = accounts.tokenFor(ENV_FILE, c.account);
-  // Luqman's knowledge lives in one place, Sky AI Brain on Supabase — not in Claude Code's own memory files.
   await tmux("new-session", "-d", "-s", c.tmux, "-c", c.cwd || WORKDIR, "-x", "140", "-y", "45",
     "-e", `CLAUDE_CHAT_ID=${c.id}`, "-e", `CLAUDE_CHAT_PORT=${PORT}`, "-e", `CLAUDE_CHAT_DATA=${DATA}`,
-    "-e", "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1",
+    ...(mem ? ["-e", "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1"] : []),
     ...(token ? ["-e", `CLAUDE_CODE_OAUTH_TOKEN=${token}`] : []),
     ...(IS_WSL ? ["-e", `PATH=${WSL_PATH}`] : []), args.map(shq).join(" "));
   const r = rt(c.id);
@@ -577,8 +593,20 @@ function gitRemote(dir) {
 // ~/.claude, cut down by its .stignore to CLAUDE.md, settings.json, the keys (.env), the Sky AI
 // Brain tool and the notes (D-014). Because keys travel, a new computer may only pair with a
 // one-time code shown on your iPhone (⋯ → Computers → Add a computer), good for 30 minutes.
-const SYNCTHING = ["/opt/homebrew/bin/syncthing", "/usr/local/bin/syncthing", "/usr/bin/syncthing"].find((p) => fs.existsSync(p));
+const SYNCTHING = process.env.SYNCTHING_BIN || ["/opt/homebrew/bin/syncthing", "/usr/local/bin/syncthing", "/usr/bin/syncthing"].find((p) => fs.existsSync(p));
 let pairCode = null; // { code, expires }
+const STIGNORE = `// Shared between your computers by Syncthing (claude-chat D-014): only these parts of ~/.claude.
+(?d).DS_Store
+!/CLAUDE.md
+!/settings.json
+!/.env
+!/.freesound-token.json
+!/knowledge
+!/knowledge/**
+!/skybrain
+!/skybrain/**
+*
+`;
 
 // Which kind of device sent a request. tailscale serve adds the caller's tailnet address to
 // X-Forwarded-For (the last entry is the one it added); requests made on this computer have none.
@@ -616,7 +644,14 @@ async function pairSync({ id, name, code } = {}) {
   pairCode = null; // each code works once
   const st = (...args) => run(SYNCTHING, ["cli", "config", ...args], { timeout: 15000 });
   const has = async (...args) => (await st(...args, "list")).stdout.includes(id);
-  if (!(await has("devices"))) await st("devices", "add", "--device-id", id, "--name", String(name || "Another computer").slice(0, 60));
+  // The first time a computer is added, this one starts sharing ~/.claude — only the parts in the same
+  // .stignore the setup scripts write (setup/mac.sh, setup/wsl.sh).
+  if (!(await st("folders", "list")).stdout.includes("claude-home")) {
+    const ignore = path.join(HOME, ".claude/.stignore");
+    if (!fs.existsSync(ignore)) fs.writeFileSync(ignore, STIGNORE);
+    await st("folders", "add", "--id", "claude-home", "--label", "Claude setup", "--path", path.join(HOME, ".claude"));
+  }
+  if (!(await has("devices")))await st("devices", "add", "--device-id", id, "--name", String(name || "Another computer").slice(0, 60));
   if (!(await has("folders", "claude-home", "devices"))) await st("folders", "claude-home", "devices", "add", "--device-id", id);
   return { id: (await run(SYNCTHING, ["device-id"])).stdout.trim(), folder: "claude-home" };
 }
@@ -1119,7 +1154,7 @@ async function api(req, res, url) {
       // A question needs an answer (POST answer), not an OK. Denying one skips it. Only a phone page from
       // before questions had buttons would try to OK one.
       if (allow && question) throw fail("Your phone has an old copy of this app, so it can't show the answer buttons. Close the app and open it again.", 409);
-      const answer = allow ? { behavior: "allow" } : { behavior: "deny", ...(question && { message: "Luqman skipped this question from his phone." }) };
+      const answer = allow ? { behavior: "allow" } : { behavior: "deny", ...(question && { message: "The user skipped this question from their phone." }) };
       if (!resolvePending(id, answer, b.reqId)) throw fail("That request was already answered.", 409);
       return json(res, { ok: true });
     }
@@ -1209,7 +1244,7 @@ function serveStatic(pathname, res) {
 // (/api/computers), and lets pages from your own tailnet talk to it (CORS). Pages from anywhere
 // else are refused, so a website open on the phone can't reach your chats.
 
-// This computer's name, shown on the phone next to its chats ("Luqman's MacBook Pro").
+// This computer's name, shown on the phone next to its chats ("Aisha's MacBook Pro").
 let COMPUTER = process.env.CLAUDE_CHAT_COMPUTER || os.hostname().replace(/\.local$/, "");
 if (!process.env.CLAUDE_CHAT_COMPUTER) {
   try {
@@ -1317,8 +1352,10 @@ const server = http.createServer(async (req, res) => {
     if (setup) {
       const file = path.join(ROOT, "setup", { mac: "mac.sh", windows: "windows.ps1", wsl: "wsl.sh" }[setup[1]]);
       if (!SELF_URL) await otherComputers(); // learn this computer's Tailscale address
+      // Without it the script couldn't find its way back here, and would set up a first computer instead.
+      if (!SELF_URL) throw fail("This computer can't see its Tailscale address yet. Is Tailscale signed in here?", 503);
       res.writeHead(200, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" });
-      return res.end(fs.readFileSync(file, "utf8").replaceAll("__HOME_URL__", SELF_URL || "__HOME_URL__"));
+      return res.end(fs.readFileSync(file, "utf8").replaceAll("__HOME_URL__", SELF_URL));
     }
     serveStatic(url.pathname, res);
   } catch (e) {

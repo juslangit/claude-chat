@@ -9,7 +9,7 @@ DIR="$(cd "$(dirname "$0")" && pwd)"
 LABEL=com.juslangit.claude-chat
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 NODE="$(command -v node || echo /opt/homebrew/bin/node)"
-mkdir -p "$DIR/data"
+mkdir -p "$DIR/data" "$(dirname "$PLIST")"   # a brand-new Mac account may not have LaunchAgents yet
 
 cat > "$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
