@@ -1,65 +1,70 @@
-/* Claude Chats — dark amber glass, after the reference shot Luqman picked (2026-09-11).
-   Dark is the real design: near-black, warm light behind everything, translucent cards, orange accents.
-   Light mode is the same shapes on warm cream, for daytime. */
+/* Claude Chats — the shapes come from the reference video, the colours from the palette Luqman saved
+   (2026-09-11): black #000000, deep maroon #562b35, orange #ff9810, coral #fd975c, teal #24a7a1.
+   Black is the canvas, maroon the cards and your own bubbles, orange whatever you tap, coral the softer
+   accents, and teal the living things — online dots, read ticks, "typing…".
+   Light mode is the same five colours on a pale coral ground, for daytime. */
 
 :root {
   color-scheme: dark;
-  --bg: #0b0705;             /* the near-black behind everything */
+  --bg: #000000;                       /* the black behind everything */
+  --maroon: #562b35;
   --ink: #ffffff;
-  --muted: rgba(255, 255, 255, .58);
+  --muted: rgba(255, 255, 255, .60);
   --faint: rgba(255, 255, 255, .34);
-  --panel: rgba(255, 255, 255, .07);   /* cards, rows, fields */
-  --panel-2: rgba(255, 255, 255, .12); /* the same, one step brighter */
-  --line: rgba(255, 255, 255, .10);
-  --glass: rgba(26, 16, 10, .72);      /* sheets and the floating bar */
-  --accent: #ff8a1f;
-  --accent-2: #ffc46b;
-  --accent-ink: #1b0f04;               /* text on an orange fill */
-  --accent-text: #ffa64d;
-  --in: rgba(255, 255, 255, .14);      /* Claude's bubbles */
-  --out: rgba(92, 56, 20, .82);        /* your bubbles */
-  --stamp: rgba(255, 255, 255, .52);
-  --tick: #ffc46b;
-  --code: rgba(0, 0, 0, .30);
+  --panel: rgba(86, 43, 53, .42);      /* cards, rows, fields: maroon glass over black */
+  --panel-2: rgba(86, 43, 53, .66);    /* the same, one step brighter */
+  --line: rgba(253, 151, 92, .20);     /* a coral hairline */
+  --glass: rgba(24, 9, 13, .82);       /* sheets and the floating bar */
+  --accent: #ff9810;                   /* anything you tap */
+  --accent-2: #fd975c;
+  --accent-ink: #2a1013;               /* text on an orange fill */
+  --accent-text: #fd975c;              /* orange is hard to read as text; coral is the palette's answer */
+  --live: #24a7a1;                     /* online, read, working */
+  --in: rgba(255, 255, 255, .12);      /* Claude's bubbles */
+  --out: rgba(86, 43, 53, .88);        /* your bubbles */
+  --stamp: rgba(255, 255, 255, .55);
+  --tick: #24a7a1;
+  --code: rgba(0, 0, 0, .45);
   --danger: #ff6b6b;
-  --warn: #ffc046;
-  --link: #ffc46b;
+  --warn: #ff9810;
+  --link: #fd975c;
   --radius: 20px;
-  --shadow: 0 10px 30px rgba(0, 0, 0, .35);
-  /* the amber wash down the top of every screen */
-  --wash: linear-gradient(180deg, rgba(255, 146, 40, .85) 0%, rgba(196, 96, 24, .55) 12%, rgba(60, 32, 14, .55) 32%, rgba(11, 7, 5, .92) 58%, var(--bg) 84%);
-  --glow-1: rgba(255, 150, 45, .55);
-  --glow-2: rgba(255, 105, 20, .38);
+  --shadow: 0 10px 30px rgba(0, 0, 0, .5);
+  /* the wash down the top of every screen: orange into coral into maroon into black */
+  --wash: linear-gradient(180deg, rgba(255, 152, 16, .92) 0%, rgba(253, 151, 92, .6) 10%, rgba(86, 43, 53, .85) 30%, rgba(14, 5, 7, .95) 58%, var(--bg) 82%);
+  --glow-1: rgba(255, 152, 16, .5);
+  --glow-2: rgba(253, 151, 92, .34);
   font-size: 17px;
 }
 
 @media (prefers-color-scheme: light) {
   :root {
     color-scheme: light;
-    --bg: #fff4e6;
-    --ink: #241507;
-    --muted: rgba(64, 40, 20, .62);
-    --faint: rgba(64, 40, 20, .40);
-    --panel: rgba(255, 255, 255, .82);
+    --bg: #fff5ef;                     /* the palette has no light neutral; this is coral at its palest */
+    --ink: #2a1319;                    /* maroon, darkened until it reads as text */
+    --muted: rgba(86, 43, 53, .68);
+    --faint: rgba(86, 43, 53, .42);
+    --panel: rgba(255, 255, 255, .85);
     --panel-2: #ffffff;
-    --line: rgba(150, 95, 40, .14);
-    --glass: rgba(255, 248, 240, .86);
-    --accent: #ef7208;
-    --accent-2: #ffa53d;
-    --accent-ink: #ffffff;
-    --accent-text: #d26206;
+    --line: rgba(86, 43, 53, .16);
+    --glass: rgba(255, 247, 242, .90);
+    --accent: #ff9810;
+    --accent-2: #fd975c;
+    --accent-ink: #2a1013;
+    --accent-text: #c96a09;            /* the palette orange, darkened so it reads on a pale ground */
+    --live: #1c8480;
     --in: #ffffff;
-    --out: #ffe0bd;
-    --stamp: rgba(70, 44, 22, .55);
-    --tick: #ef7208;
-    --code: rgba(120, 70, 20, .10);
-    --danger: #d92b2b;
-    --warn: #b06a00;
-    --link: #c8600a;
-    --shadow: 0 8px 22px rgba(130, 80, 30, .14);
-    --wash: linear-gradient(180deg, rgba(255, 163, 60, .92) 0%, rgba(255, 190, 120, .55) 14%, rgba(255, 232, 208, .70) 34%, var(--bg) 62%);
-    --glow-1: rgba(255, 170, 70, .55);
-    --glow-2: rgba(255, 130, 40, .30);
+    --out: #ffe1d2;                    /* coral, at its palest */
+    --stamp: rgba(86, 43, 53, .58);
+    --tick: #1c8480;
+    --code: rgba(86, 43, 53, .10);
+    --danger: #cc2f2f;
+    --warn: #c96a09;
+    --link: #c96a09;
+    --shadow: 0 8px 22px rgba(86, 43, 53, .16);
+    --wash: linear-gradient(180deg, rgba(255, 152, 16, .95) 0%, rgba(253, 151, 92, .75) 12%, rgba(255, 225, 210, .75) 34%, var(--bg) 62%);
+    --glow-1: rgba(255, 152, 16, .5);
+    --glow-2: rgba(253, 151, 92, .34);
   }
 }
 
@@ -148,8 +153,8 @@ svg { display: block; flex: none; }
 .day-date span { color: var(--accent-text); }
 .day-row { position: relative; z-index: 1; display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-top: 14px; }
 .day-note { font-size: .92rem; line-height: 1.35; color: var(--muted); max-width: 52%; }
-.day-go { flex: none; padding: 10px 18px; border-radius: 20px; background: rgba(0, 0, 0, .55); color: #fff; font-size: .9rem; font-weight: 600; }
-@media (prefers-color-scheme: light) { .day-go { background: #2a1a0c; } }
+.day-go { flex: none; padding: 10px 18px; border-radius: 20px; background: rgba(0, 0, 0, .6); color: #fff; font-size: .9rem; font-weight: 600; }
+@media (prefers-color-scheme: light) { .day-go { background: var(--maroon); } }
 
 .section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 0 2px 10px; }
 .section-head h2 { margin: 0; font-size: 1.08rem; font-weight: 600; }
@@ -170,7 +175,7 @@ svg { display: block; flex: none; }
   background: var(--panel); border: 1px solid var(--line); font-size: .9rem;
 }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
-.dot.on { background: #4ade80; box-shadow: 0 0 8px rgba(74, 222, 128, .8); }
+.dot.on { background: var(--live); box-shadow: 0 0 8px rgba(36, 167, 161, .85); }
 
 /* ── search and chips ── */
 .search {
@@ -195,7 +200,7 @@ svg { display: block; flex: none; }
   backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); touch-action: pan-y;
 }
 .row:active { background: var(--panel-2); }
-.row.unread { border-color: rgba(255, 138, 31, .45); }
+.row.unread { border-color: rgba(255, 152, 16, .5); }
 .row::before {
   content: attr(data-swipe); position: absolute; left: -76px; top: 50%; width: 64px; height: 30px; margin-top: -15px;
   display: grid; place-items: center; border-radius: 15px; background: var(--panel); color: var(--muted); font-size: .8rem; font-weight: 600;
@@ -215,14 +220,14 @@ svg { display: block; flex: none; }
 }
 .ptext .ticks { display: inline-block; vertical-align: -1px; margin-right: 3px; }
 .row .pin { flex: none; color: var(--faint); }
-.typing-text { color: var(--accent-text); }
+.typing-text { color: var(--live); }
 .warn-text { color: var(--warn); }
 .where { color: var(--ink); font-weight: 500; }
 .badge {
   flex: none; min-width: 22px; height: 22px; padding: 0 7px; border-radius: 11px; display: grid; place-items: center;
   background: var(--accent); color: var(--accent-ink); font-size: .72rem; font-weight: 700;
 }
-.badge.warn { background: var(--warn); color: #241507; }
+.badge.warn { background: var(--warn); color: var(--accent-ink); }
 .avatar {
   flex: none; width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center;
   color: #fff; font-weight: 600; font-size: 1.1rem;
@@ -234,7 +239,7 @@ svg { display: block; flex: none; }
 .empty { padding: 40px 24px; text-align: center; color: var(--muted); line-height: 1.5; }
 .offline-note {
   margin-bottom: 10px; padding: 12px 14px; border-radius: 16px; font-size: .88rem; line-height: 1.4;
-  background: rgba(255, 192, 70, .14); border: 1px solid rgba(255, 192, 70, .3); color: var(--ink);
+  background: rgba(255, 152, 16, .14); border: 1px solid rgba(255, 152, 16, .34); color: var(--ink);
 }
 .offline-note small { display: block; margin-top: 3px; color: var(--muted); font-size: .8rem; }
 .footnote {
@@ -290,7 +295,7 @@ svg { display: block; flex: none; }
 /* the reply arrow that appears as you swipe a message */
 .messages .bubble.swiping::after {
   content: ""; position: absolute; left: -40px; top: calc(50% - 14px); width: 28px; height: 28px; border-radius: 50%;
-  background: var(--panel) center / 15px no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23ffb066' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6.5 3.5 2.5 7.5l4 4M2.5 7.5h7a4 4 0 0 1 4 4v1'/%3E%3C/svg%3E");
+  background: var(--panel) center / 15px no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23fd975c' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6.5 3.5 2.5 7.5l4 4M2.5 7.5h7a4 4 0 0 1 4 4v1'/%3E%3C/svg%3E");
   border: 1px solid var(--line); opacity: .6;
 }
 .messages .bubble.swipe-ready::after { opacity: 1; }
@@ -339,16 +344,16 @@ svg { display: block; flex: none; }
 .bubble.command { width: 94%; padding: 11px 13px; white-space: normal; }
 .command-top { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: .84rem; }
 .command-top b { color: var(--accent-text); font-family: ui-monospace, Menlo, monospace; font-weight: 600; }
-.command-asks { margin-left: auto; padding: 2px 9px; border-radius: 10px; background: rgba(255, 192, 70, .18); color: var(--warn); font-size: .7rem; }
+.command-asks { margin-left: auto; padding: 2px 9px; border-radius: 10px; background: rgba(255, 152, 16, .2); color: var(--warn); font-size: .7rem; }
 .bubble.command pre { max-height: 44vh; overflow: auto; margin: 9px 0 0; font-size: .68rem; line-height: 1.4; }
 .command-screen { margin-top: 9px; color: var(--accent-text); font-size: .9rem; font-weight: 600; }
 
 .day { align-self: center; margin: 14px 0 6px; padding: 6px 14px; border-radius: 14px; background: var(--panel); border: 1px solid var(--line); color: var(--muted); font-size: .74rem; font-weight: 500; }
-.system { align-self: center; max-width: 86%; margin: 10px 0 4px; padding: 8px 14px; border-radius: 14px; background: rgba(255, 192, 70, .14); border: 1px solid rgba(255, 192, 70, .26); color: var(--ink); font-size: .78rem; text-align: center; }
+.system { align-self: center; max-width: 86%; margin: 10px 0 4px; padding: 8px 14px; border-radius: 14px; background: rgba(255, 152, 16, .14); border: 1px solid rgba(255, 152, 16, .28); color: var(--ink); font-size: .78rem; text-align: center; }
 
 .typing { margin-top: 10px; padding: 10px 14px 11px; white-space: normal; }
 .dots { display: flex; gap: 5px; padding: 4px 2px; }
-.typing i { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); animation: blink 1.2s infinite; }
+.typing i { width: 7px; height: 7px; border-radius: 50%; background: var(--live); animation: blink 1.2s infinite; }
 .typing i:nth-child(2) { animation-delay: .2s; }
 .typing i:nth-child(3) { animation-delay: .4s; }
 @keyframes blink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
@@ -370,7 +375,7 @@ svg { display: block; flex: none; }
 .ask-top { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: .78rem; }
 .ask-top .grow { flex: 1; }
 .ask-top button { padding: 2px 0 2px 12px; color: var(--accent-text); font-size: .9rem; }
-.ask-chip { padding: 3px 10px; border-radius: 11px; background: rgba(255, 138, 31, .2); color: var(--accent-text); font-weight: 600; }
+.ask-chip { padding: 3px 10px; border-radius: 11px; background: rgba(255, 152, 16, .2); color: var(--accent-text); font-weight: 600; }
 .ask-count { color: var(--muted); }
 .ask-q { font-size: 1rem; font-weight: 600; }
 .ask-hint { margin-top: 4px; color: var(--muted); font-size: .82rem; }
@@ -392,10 +397,10 @@ svg { display: block; flex: none; }
 .find-count { flex: none; min-width: 56px; color: var(--muted); font-size: .78rem; text-align: right; font-variant-numeric: tabular-nums; }
 .find .arrow { flex: none; width: 32px; height: 34px; display: grid; place-items: center; color: var(--accent-text); }
 .find .link { padding: 6px 2px 6px 6px; font-weight: 600; }
-::highlight(find) { background-color: rgba(255, 196, 107, .35); }
-::highlight(find-now) { background-color: #ffc46b; color: #1b0f04; }
-.bubble.hit { outline: 2px solid rgba(255, 196, 107, .5); }
-.bubble.hit-now { outline: 2px solid var(--accent-2); }
+::highlight(find) { background-color: rgba(253, 151, 92, .38); }
+::highlight(find-now) { background-color: #ff9810; color: #2a1013; }
+.bubble.hit { outline: 2px solid rgba(253, 151, 92, .5); }
+.bubble.hit-now { outline: 2px solid var(--accent); }
 
 /* ── the bottom of a chat ── */
 .ended { flex: none; text-align: center; padding: 12px 16px calc(env(safe-area-inset-bottom) + 12px); color: var(--muted); font-size: .88rem; }
@@ -469,7 +474,7 @@ svg { display: block; flex: none; }
 .section-title { margin: 2px 4px -6px; color: var(--muted); font-size: .84rem; }
 .chips.in-sheet { margin: 0; }
 .computer .state { color: var(--muted); font-size: .86rem; }
-.computer .state.on { color: #4ade80; }
+.computer .state.on { color: var(--live); }
 .sheet-note { margin: 0 4px; color: var(--faint); font-size: .82rem; line-height: 1.45; }
 .add-box { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 14px; border-radius: var(--radius); background: var(--panel); border: 1px solid var(--line); font-size: .9rem; line-height: 1.45; }
 .add-box p { margin: 0; }
@@ -483,7 +488,7 @@ svg { display: block; flex: none; }
 .tile { display: flex; flex-direction: column; align-items: center; gap: 7px; padding: 13px 2px 11px; border-radius: 16px; background: var(--panel); border: 1px solid var(--line); color: var(--accent-text); font-size: .7rem; text-align: center; }
 .tile span { color: var(--ink); }
 
-#screen-text { flex: 1; margin: 0; overflow: auto; padding: 12px; border-radius: 14px; background: #0a0705; color: #e8ded6; font: 10.5px/1.3 ui-monospace, Menlo, monospace; white-space: pre; border: 1px solid var(--line); }
+#screen-text { flex: 1; margin: 0; overflow: auto; padding: 12px; border-radius: 14px; background: #000; color: #ede4e6; font: 10.5px/1.3 ui-monospace, Menlo, monospace; white-space: pre; border: 1px solid var(--line); }
 .keys { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
 .keys button { height: 48px; border-radius: 14px; background: var(--panel); border: 1px solid var(--line); font-size: 1.05rem; font-weight: 600; }
 .keys button:active { background: var(--panel-2); }
@@ -500,7 +505,7 @@ svg { display: block; flex: none; }
 /* ── voice call ── */
 .call {
   position: fixed; inset: 0; z-index: 30; display: flex; flex-direction: column; align-items: center; text-align: center;
-  color: #fff; background: radial-gradient(130% 70% at 50% 16%, #b45a12 0%, #2a1408 55%, #0b0705 100%);
+  color: #fff; background: radial-gradient(130% 70% at 50% 16%, rgba(255, 152, 16, .9) 0%, #562b35 48%, #000 100%);
   padding: calc(env(safe-area-inset-top) + 22px) 24px calc(env(safe-area-inset-bottom) + 26px); animation: fade .2s;
 }
 .call-label { display: flex; align-items: center; gap: 6px; font-size: .8rem; opacity: .75; }
@@ -513,7 +518,7 @@ svg { display: block; flex: none; }
 .call-said { max-height: 30vh; overflow-y: auto; font-size: .98rem; line-height: 1.5; opacity: .85; white-space: pre-wrap; }
 .call[data-mode="listening"] #call-avatar .avatar { animation: ring 1.4s ease-out infinite; }
 .call[data-mode="speaking"] #call-avatar .avatar { animation: ring-white 1.4s ease-out infinite; }
-@keyframes ring { from { box-shadow: 0 0 0 0 rgba(255, 138, 31, .65); } to { box-shadow: 0 0 0 28px rgba(255, 138, 31, 0); } }
+@keyframes ring { from { box-shadow: 0 0 0 0 rgba(36, 167, 161, .7); } to { box-shadow: 0 0 0 28px rgba(36, 167, 161, 0); } }
 @keyframes ring-white { from { box-shadow: 0 0 0 0 rgba(255, 255, 255, .45); } to { box-shadow: 0 0 0 28px rgba(255, 255, 255, 0); } }
 .call-approval { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; max-width: 360px; margin-bottom: 18px; }
 .call-approval button { height: 50px; border-radius: 16px; background: rgba(255, 255, 255, .16); color: #fff; font-weight: 600; }
@@ -527,7 +532,7 @@ svg { display: block; flex: none; }
 .toast {
   position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 108px); z-index: 40; transform: translateX(-50%);
   width: max-content; max-width: calc(100% - 32px); padding: 12px 18px; border-radius: 22px;
-  background: rgba(20, 12, 8, .94); border: 1px solid var(--line); color: #fff; font-size: .92rem; text-align: center;
+  background: rgba(24, 9, 13, .95); border: 1px solid var(--line); color: #fff; font-size: .92rem; text-align: center;
 }
 /* While a sheet is up (the screen's keys, say), the toast sits higher so it doesn't cover the buttons. */
 body:has(.sheet:not([hidden])) .toast { bottom: calc(env(safe-area-inset-bottom) + 34dvh); }
