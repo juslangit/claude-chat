@@ -128,7 +128,7 @@ This only happens once.
 
 1. The setup's last line is your computer's address, like `https://my-mac.tail1234.ts.net`. Open it in
    **Safari** on the iPhone (with Tailscale switched on).
-2. Tap **Share → Add to Home Screen**. From now on, open **Claude Chats** from your Home Screen.
+2. Tap **Share → Add to Home Screen**. From now on, open it from your Home Screen — it's called **Claude Mac** or **Claude PC**, after the computer.
 3. Tap **+**, choose **Whole project folder**, and ask Claude for something — "make me a small web page
    about cats" is a good first try. The new project appears in `Desktop/project` on your computer.
 
@@ -156,7 +156,8 @@ The server's log (see [Mac and Windows side by side](#mac-and-windows-side-by-si
 | Send Claude a photo | **+** next to the typing box → pick or take one, add a caption if you like, send |
 | Get a render, screenshot or file **from** Claude | Ask for it. Claude runs `cchat send <file> "caption"` and it appears in the chat; just naming a file's path in its reply shows it too |
 | Reply to one particular message | Swipe it to the right — it's quoted above the typing box |
-| Pin, archive, rename or delete chats | Hold a chat in the list for its menu. Archived chats sit behind the **Archived** row at the top and stop notifying you; **Delete** stops Claude and removes the conversation and its photos |
+| Pin, archive, rename or delete chats | Hold a chat in the list for its menu. Archived chats sit behind the **Archived** row at the top and stop notifying you; **Delete** stops Claude and removes the conversation and its photos. Pins and unread counts are kept on the computers, so every link shows the same |
+| Go to another computer's own app | ⚙ Settings → your face (top right) → tap that computer. The first time, add its page to your Home Screen — it's called **Claude PC** or **Claude Mac** |
 | Clear out everything that has stopped | ⚙ Settings → **Delete stopped chats** (it says how many and asks first) |
 | Find something in a chat | Chat info → **Search**; the arrows jump between matches |
 | Switch between two Claude accounts (e.g. Pro and Max) | ⚙ Settings → the round button at the top right. Adding a second account is done from the phone too |
@@ -204,10 +205,11 @@ told to save with `mem remember` instead.
 
 ## Notifications
 
-The iPhone only allows notifications for apps on the Home Screen (iOS 16.4 or later). Open Claude Chats
-from the Home Screen, then ⋯ → **Notifications** → Allow; a test one arrives straight away. From then on,
+The iPhone only allows notifications for apps on the Home Screen (iOS 16.4 or later). Open the app (**Claude Mac** or
+**Claude PC**) from the Home Screen, then ⋯ → **Notifications** → Allow; a test one arrives straight away. From then on,
 every computer — Mac or PC — sends one when Claude finishes a reply or needs you (a question or an
-approval) — but not while you have the app open in front of you. Tap one to open that chat.
+approval) — but not while you have the app open in front of you. Tap one to open that chat. Each computer's own app asks for
+notifications separately.
 
 They travel through Apple's push service, encrypted so only your iPhone can read them. The key that signs
 them is `CLAUDE_CHAT_VAPID_PUBLIC` / `CLAUDE_CHAT_VAPID_PRIVATE` in `~/.claude/.env`: made the first time
@@ -305,6 +307,7 @@ node dev/checks/screenshots.mjs    # iPhone-size pictures of every screen, light
 |---|---|---|
 | `commands` | Claude Code's own commands from the phone, the result cards, menus, the risky ones | 31 |
 | `archive` | archiving and unarchiving, staying quiet while archived, deleting the stopped ones | 62 |
+| `links` | each computer's own link from Settings, and pins and read marks kept on the computers | 30 |
 | `accounts` | which Claude account a chat runs as, adding and switching | 40 |
 | `setup` | a new person's computer (permission mode, memory, first pairing), and the Mac and Linux setup scripts run in a sandbox | 38 |
 | `files` | files coming back from Claude to the phone | 22 |
