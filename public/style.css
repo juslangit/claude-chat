@@ -132,7 +132,8 @@ svg { display: block; flex: none; }
   background: var(--panel); border: 1px solid var(--line); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
 }
 .glass-btn:active, .round-btn:active { background: var(--panel-2); }
-.glass-btn.pill { width: auto; padding: 0 16px; border-radius: 20px; font-size: .95rem; font-weight: 600; } /* Done, while selecting */
+/* Select all and Done, while selecting — compact, so "Deselect all · 12 selected · Done" fits a phone */
+.glass-btn.pill { width: auto; padding: 0 12px; border-radius: 20px; font-size: .88rem; font-weight: 600; white-space: nowrap; }
 
 /* ── Home ── */
 .hello { display: flex; align-items: center; gap: 10px; padding: 4px 0 18px; }

@@ -237,6 +237,29 @@ try {
   await shot("6-selecting");
   await tap(C.id);
   check("…tapping it again unticks it", (await title()) === "1 selected");
+  const pickAll = () => js(`document.querySelector("#pick-all").click(); true`);
+  check("Select all shows while selecting", await js(`!document.querySelector("#pick-all").hidden`) && (await label("pick-all")) === "Select all");
+  await pickAll();
+  check("Select all ticks every chat showing, and becomes Deselect all", (await title()) === "3 selected" && (await label("pick-all")) === "Deselect all");
+  await shot("7-select-all");
+  // the widest the header gets: Deselect all, a two-digit count, and Done, all on one phone-wide line
+  check("Deselect all, \"12 selected\" and Done fit side by side", await js(`(() => {
+    const t = document.querySelector("#nav-title"), was = t.textContent; t.textContent = "12 selected";
+    const a = document.querySelector("#pick-all").getBoundingClientRect(), m = t.getBoundingClientRect(), d = document.querySelector("#pick-done").getBoundingClientRect();
+    t.textContent = was;
+    return a.right <= m.left && m.right <= d.left && d.right <= innerWidth && Math.abs((m.left + m.right) / 2 - innerWidth / 2) < 6;
+  })()`));
+  await pickAll();
+  check("Deselect all unticks them all, and Archive / Delete grey out", (await title()) === "Select chats" && await js(`document.querySelector("#pick-archive").disabled && document.querySelector("#pick-delete").disabled`));
+  const search = (text) => js(`(() => { const s = document.querySelector("#search"); s.value = ${JSON.stringify(text)}; s.dispatchEvent(new Event("input", { bubbles: true })); return true; })()`);
+  await search("extra");
+  await pickAll();
+  check("with a search, Select all ticks only what the search shows", (await title()) === "2 selected" && await js(`!state.picking.has("home/${A.id}")`));
+  await search("");
+  await pickAll(); // everything showing isn't ticked yet (A isn't), so this ticks A as well…
+  await pickAll(); // …and this unticks all three
+  await tap(A.id);
+  check("(back to just the first chat ticked)", (await title()) === "1 selected" && await js(`state.picking.has("home/${A.id}")`));
   await tap(C.id);
   await js(`document.querySelector("#pick-archive").click(); true`);
   check("Archive archives every ticked chat, and only those", await until(`!document.querySelector('${rowSel}') && !document.querySelector('${rowOf(C.id)}')`, 6000) && (await one(A.id))?.archived === true && (await one(C.id))?.archived === true && (await one(E.id))?.archived === false);
