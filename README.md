@@ -59,7 +59,8 @@ Use Claude Code on the home Mac from your iPhone, like WhatsApp.
 | `install.sh` | One-time setup (start at login, `cchat` command, Tailscale). Safe to re-run. |
 | `setup/` | One-line setup for another Mac (`mac.sh`) or a Windows PC (`windows.ps1` + `wsl.sh`), downloaded from this Mac. |
 | `data/` | Created when it runs: list of chats, the hook password, the log. Not in git. |
-| `dev/` | For testing changes to the phone page: a read-only test copy on port 4478 and iPhone-size screenshots. |
+| `dev/checks/` | The automated checks — see "Checking a change" below. |
+| `dev/` | Tools for working on it: `reach.mjs` (reach a computer the way the phone does), `update-computer.mjs` (pull and restart another computer), `stage.mjs` / `shot.mjs` (a read-only copy of the page on port 4478, and screenshots), `video-frames.mjs` (stills out of a reference video). |
 
 ## Everyday use
 
@@ -88,6 +89,35 @@ Use Claude Code on the home Mac from your iPhone, like WhatsApp.
 | Restart the server after changing code | `launchctl kickstart -k gui/$(id -u)/com.juslangit.claude-chat` |
 
 Running chats are not affected by restarting the server — they live in tmux.
+
+## Checking a change
+
+```bash
+node dev/checks/run.mjs            # every suite, one after another (about 18 minutes)
+node dev/checks/run.mjs --quick    # only the ones that don't need Claude to answer
+node dev/checks/run.mjs archive    # just one, by name
+node dev/checks/screenshots.mjs    # iPhone-size pictures of every screen, light and dark
+```
+
+| Suite | What it covers | Checks |
+|---|---|---|
+| `commands` | Claude Code's own commands from the phone, the result cards, menus, the risky ones | 31 |
+| `archive` | archiving and unarchiving, staying quiet while archived, deleting the stopped ones | 27 |
+| `features` | photos, pins, search in a chat, swipe to reply, notifications end to end | 43 |
+| `fixes` | reconnecting, "offline since", the Host and Origin checks, stuck "typing…" | 47 |
+
+Each suite starts **its own** claude-chat on port 4479 — its own data folder, its own tmux server, its own
+`.env` file, and Haiku as the model — so none of it touches the app you actually use. They run one at a
+time because they share that port. Whatever they leave behind sits in `dev/checks/.work/`, which git
+ignores. Some of them let Claude answer for real, so they use a little of your weekly limit; `--quick`
+skips those.
+
+Two helpers for the computers themselves:
+
+```bash
+node dev/reach.mjs luqman-mac GET /api/whoami     # reach a computer exactly as the phone does
+node dev/update-computer.mjs desktop-k2m7l30      # have that computer pull and restart itself
+```
 
 ## Notifications
 
