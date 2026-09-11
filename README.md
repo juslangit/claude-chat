@@ -69,6 +69,7 @@ Use Claude Code on the home Mac from your iPhone, like WhatsApp.
 | Start a chat from the Mac that shows on the phone | `cchat` or `cchat my chat name` — run inside a project folder and the chat starts in that project |
 | Keep a chat private to the Mac | Plain `claude`, as before |
 | Stop Claude mid-answer | Red **■** button (same as pressing Esc) |
+| Run a Claude Code command (`/usage`, `/model`, `/context`…) | The **⌘** button at the top of a chat; what the Terminal shows comes back as a card |
 | Rename a chat, end it, or open it on the Mac | Tap the chat's name at the top (Chat info) |
 | Talk instead of typing | Hold 🎤, talk, let go. Slide left to cancel |
 | Have a voice call with Claude | Tap 📞 at the top of the chat; the red button hangs up |
