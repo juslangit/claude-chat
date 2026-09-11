@@ -74,8 +74,11 @@
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 [hidden] { display: none !important; }
+/* The page itself must be --app-h tall too, not 100%. With the see-through status bar, a Home Screen
+   app whose page is 100% tall gets the short, non-see-through size (812 of 874 on an iPhone 17 Pro, 2026-09-11)
+   and the iPhone draws nothing below it — a black strip under the app with the tab bar cut off. */
 html, body {
-  margin: 0; height: 100%; background: var(--bg); color: var(--ink); overscroll-behavior: none;
+  margin: 0; height: var(--app-h); background: var(--bg); color: var(--ink); overscroll-behavior: none;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing: antialiased;
 }
 button { font: inherit; color: inherit; cursor: pointer; background: none; border: 0; padding: 0; }
