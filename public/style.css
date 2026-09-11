@@ -293,6 +293,16 @@ svg { display: block; flex: none; }
 @media (prefers-color-scheme: light) {
   #chat-view::before { background: linear-gradient(180deg, rgba(255, 186, 112, .8) 0%, rgba(255, 224, 195, .6) 20%, var(--bg) 54%); }
 }
+/* how full Claude's memory is in this chat */
+.context { flex: none; display: flex; flex-direction: column; gap: 5px; padding: 2px 16px 8px; text-align: left; }
+.context-line { display: block; height: 4px; border-radius: 2px; background: var(--panel-2); overflow: hidden; }
+.context-line i { display: block; height: 100%; border-radius: 2px; background: var(--live); transition: width .3s; }
+.context-text { color: var(--muted); font-size: .74rem; }
+.context.warm .context-line i { background: var(--accent); }
+.context.warm .context-text { color: var(--accent-text); }
+.context.hot .context-line i { background: var(--danger); }
+.context.hot .context-text { color: var(--danger); }
+
 .stage { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .stage::before { /* the warm light in the middle of a conversation, as in the reference */
   content: ""; position: absolute; inset: 0; z-index: -1;

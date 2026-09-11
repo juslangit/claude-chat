@@ -41,6 +41,9 @@ const PHOTO_DIR = path.join(DATA, "photos");  // photos sent from the phone, one
 const PUSH_FILE = path.join(DATA, "push.json"); // the phone's push addresses
 // The notification signing key is kept with your other keys, which Syncthing shares (push.mjs).
 const ENV_FILE = process.env.CLAUDE_CHAT_ENV_FILE || path.join(HOME, ".claude/.env");
+// How much Claude can hold in mind at once. Every current model is 200k tokens; a long chat creeping
+// towards it is what makes sessions expensive, so the phone shows it and offers to compact.
+const CONTEXT_LIMIT = Number(process.env.CLAUDE_CHAT_CONTEXT_LIMIT || 200000);
 // The permission hook is allowed 30 minutes; give up a little before Claude Code does.
 const APPROVAL_WAIT_MS = 29 * 60 * 1000;
 
@@ -131,6 +134,7 @@ function summary(c) {
     status: r.alive ? r.status : "ended",
     lastText: r.lastText, lastAt: r.lastAt || c.createdAt, count: r.count,
     note: r.status === "working" || r.status === "approval" ? r.note || null : null, // Claude's latest progress note
+    context: { used: r.tokens || 0, limit: CONTEXT_LIMIT }, // how full Claude's memory is in this chat
     pending: r.pending && { reqId: r.pending.reqId, tool: r.pending.tool, detail: r.pending.detail, why: r.pending.why, questions: r.pending.questions },
   };
 }
@@ -239,7 +243,14 @@ function readTranscript(id) {
 
   const fresh = [];
   for (const line of buf.subarray(0, end).toString("utf8").split("\n")) {
-    try { if (line.trim()) fresh.push(...toMessages(JSON.parse(line))); } catch {}
+    try {
+      if (!line.trim()) continue;
+      const o = JSON.parse(line);
+      // Claude Code records what each answer cost. The prompt half of that is how full its memory is.
+      const u = o.message?.usage;
+      if (u) r.tokens = (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0);
+      fresh.push(...toMessages(o));
+    } catch {}
   }
   if (!fresh.length) return;
   for (const m of fresh) {
@@ -738,6 +749,7 @@ function handleHook(chatId, ev, res) {
         c.transcript = ev.transcript_path;
         c.sessionId = ev.session_id;
         r.offset = 0;
+        r.tokens = 0; // a cleared or resumed session starts with an empty memory
         if (ev.source === "resume") { r.messages = []; r.count = 0; broadcast({ type: "reset", chatId }); }
         else pushSystem(chatId, ev.source === "clear" ? "Conversation cleared" : "New session");
         save();
