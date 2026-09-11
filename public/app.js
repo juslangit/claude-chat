@@ -2074,6 +2074,9 @@ function pollLogin() {
 const vv = window.visualViewport;
 function fitToKeyboard() {
   const view = $("#chat-view");
+  // With the keyboard down, hand the size back to the stylesheet: the window's own height can be a
+  // notch-and-home-bar short in the Home Screen app, and pinning the chat to it would bring back the gap.
+  if (vv.height > innerHeight - 80) { view.style.height = view.style.top = ""; return; }
   view.style.height = `${vv.height}px`;
   view.style.top = `${vv.offsetTop}px`;
 }
@@ -2081,6 +2084,40 @@ if (vv) {
   vv.addEventListener("resize", () => { const stick = nearBottom(); fitToKeyboard(); if (stick) scrollDown(); });
   vv.addEventListener("scroll", fitToKeyboard);
 }
+
+// ── how big the screen really is ───────────────────────────────────────────
+// The phone tells the Mac what size it was given, so a gap at the top or bottom can be read off
+// data/viewport.log instead of guessed from a screenshot.
+
+function measureScreen() {
+  const probe = (css) => {
+    const el = document.createElement("div");
+    el.style.cssText = `position:fixed;left:0;top:0;width:0;visibility:hidden;pointer-events:none;${css}`;
+    document.body.append(el);
+    const cs = getComputedStyle(el);
+    const got = { h: Math.round(el.getBoundingClientRect().height), top: parseFloat(cs.paddingTop), bottom: parseFloat(cs.paddingBottom) };
+    el.remove();
+    return got;
+  };
+  const inset = probe("padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)");
+  const view = $(".view:not([hidden])")?.getBoundingClientRect();
+  return {
+    standalone: navigator.standalone === true || matchMedia("(display-mode: standalone)").matches,
+    screen: [screen.width, screen.height],
+    window: [innerWidth, innerHeight],
+    visual: vv ? [Math.round(vv.height), Math.round(vv.offsetTop)] : null,
+    vh: probe("height:100vh").h, dvh: probe("height:100dvh").h, svh: probe("height:100svh").h,
+    lvh: probe("height:100lvh").h, inset0: probe("bottom:0").h,
+    appH: probe("height:var(--app-h)").h,
+    safeTop: inset.top, safeBottom: inset.bottom,
+    viewBox: view && [Math.round(view.top), Math.round(view.bottom)],
+  };
+}
+function reportScreen(when) {
+  try { api("/api/viewport", { body: { when, ...measureScreen() } }).catch(() => {}); } catch {}
+}
+setTimeout(() => reportScreen("start"), 1500);
+addEventListener("orientationchange", () => setTimeout(() => reportScreen("turned"), 800));
 
 route();
 startComputers();
