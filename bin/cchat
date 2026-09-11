@@ -3,6 +3,7 @@
 #
 #   cchat              new chat (named after your first message)
 #   cchat kedai fixes  new chat called "kedai fixes"
+#   cchat send out.png "the render"   show a file on the phone, from inside a chat
 #
 # Run it inside one of your projects (or any folder within one) and the chat starts in that
 # project and is named after it. Plain `claude` still works as before and stays private to the Mac.
@@ -11,6 +12,20 @@
 PORT=${CLAUDE_CHAT_PORT:-4477}
 ROOT=${CLAUDE_CHAT_WORKDIR:-$HOME/Desktop/project}
 TMUX_BIN=$(command -v tmux || echo /opt/homebrew/bin/tmux)
+
+# cchat send <file> [caption] — show a file on the phone, from inside a chat.
+if [ "$1" = send ]; then
+  file=$2
+  shift 2 2>/dev/null || shift
+  [ -f "$file" ] || { echo "No such file: $file"; exit 1; }
+  abs=$(cd "$(dirname "$file")" && pwd)/$(basename "$file")
+  [ -n "$CLAUDE_CHAT_ID" ] || { echo "Run this inside a chat that shows on the phone (started by claude-chat or cchat)."; exit 1; }
+  curl -sf -X POST "http://127.0.0.1:$PORT/api/chats/$CLAUDE_CHAT_ID/share" -H 'content-type: application/json' \
+    -d "$(jq -n --arg p "$abs" --arg c "$*" '{path: $p, caption: $c}')" >/dev/null \
+    && echo "Sent to the phone: $(basename "$abs")" \
+    || { echo "Couldn't send it — is it bigger than 60 MB, or is the server down?"; exit 1; }
+  exit 0
+fi
 proj=""
 if [[ $PWD == "$ROOT"/* ]]; then rel=${PWD#"$ROOT"/}; proj=${rel%%/*}; fi
 resp=$(curl -sf -X POST "http://127.0.0.1:$PORT/api/chats" -H 'content-type: application/json' \
