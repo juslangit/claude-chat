@@ -386,6 +386,11 @@ function renderList() {
   $("#tabs").hidden = !!p || !!state.current;
   $("#pick-archive").textContent = state.archivedView ? "Unarchive" : "Archive";
   $("#pick-archive").disabled = $("#pick-delete").disabled = !p?.size;
+  // Select all means what's showing — Search and the chips narrow it — and turns into Deselect all.
+  const allOn = !!p && shown.length > 0 && shown.every((c) => p.has(c.key));
+  $("#pick-all").hidden = !p;
+  $("#pick-all").textContent = allOn ? "Deselect all" : "Select all";
+  $("#pick-all").disabled = !shown.length;
 
   $("#chat-list").innerHTML = shown.length
     ? shown.map(rowHtml).join("")
@@ -1623,6 +1628,12 @@ function togglePicked(key) {
 }
 const stopPicking = () => { state.picking = null; renderList(); };
 $("#pick-done").onclick = stopPicking;
+$("#pick-all").onclick = () => {
+  const p = state.picking, shown = [...state.chats.values()].filter(matches);
+  const allOn = shown.every((c) => p.has(c.key));
+  for (const c of shown) if (allOn) p.delete(c.key); else p.add(c.key);
+  renderList();
+};
 const pickedChats = () => [...(state.picking || [])].map((k) => state.chats.get(k)).filter(Boolean);
 const plural = (n) => `${n} chat${n === 1 ? "" : "s"}`;
 // Runs one request per chat, and says how many went through.
