@@ -54,7 +54,7 @@ Use Claude Code on the home Mac from your iPhone, like WhatsApp.
 | `notes.mjs` | Reads Claude's progress notes off the Terminal screen, so the phone can show them while it works. |
 | `push.mjs` | Sends notifications to the iPhone: encrypts them for the phone and signs them, with Node's own crypto. |
 | `public/` | The phone app — `index.html` (layout), `style.css` (look), `app.js` (behaviour), `sw.js` (shows notifications). |
-| `bin/cchat` | Type `cchat` in any Mac Terminal to start a chat that also shows on the phone. |
+| `bin/cchat` | Type `cchat` in any Mac Terminal to start a chat that also shows on the phone. `cchat send <file>` shows a file on the phone from inside a chat — this is what Claude uses to send you a render. |
 | `tmux.conf` | Makes the tmux windows look like a plain Terminal. |
 | `install.sh` | One-time setup (start at login, `cchat` command, Tailscale). Safe to re-run. |
 | `setup/` | One-line setup for another Mac (`mac.sh`) or a Windows PC (`windows.ps1` + `wsl.sh`), downloaded from this Mac. |
@@ -77,6 +77,7 @@ Use Claude Code on the home Mac from your iPhone, like WhatsApp.
 | Send a common reply in one tap | The buttons above the typing bar ("Yes, go ahead", "Explain simpler"…) |
 | Turn the reply sound off | ⋯ on the Chats screen → Reply sound |
 | Send Claude a photo | **+** next to the typing box → pick or take one, add a caption if you like, send |
+| Get a render, screenshot or file **from** Claude | Ask for it. Claude runs `cchat send <file> "caption"` and it appears in the chat; just naming a file's path in its reply shows it too |
 | Reply to one particular message | Swipe it to the right — it's quoted above the typing box |
 | Keep a chat at the top of the list | Swipe it to the right in the list (or Chat info → Pin chat) |
 | Hide a chat without losing it | Swipe it to the **left** (or Chat info → Archive chat). It's behind the **Archived** row at the top of the list, and it stops notifying you |

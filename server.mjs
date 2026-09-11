@@ -245,7 +245,7 @@ function readTranscript(id) {
   for (const m of fresh) {
     r.messages.push(m);
     r.lastAt = m.at;
-    if (m.role === "assistant") { r.count++; r.lastText = m.text; }
+    if (m.role === "assistant") { r.count++; r.lastText = m.text; m.files = filesNamedIn(id, m.text); }
     if (m.role === "user") {
       r.lastText = `You: ${m.text}`;
       // An unnamed chat takes its name from the first thing you say in it, like a message preview.
@@ -261,6 +261,52 @@ function pushSystem(id, text) {
   const m = { id: crypto.randomUUID(), role: "system", text, at: Date.now() };
   rt(id).messages.push(m);
   broadcast({ type: "messages", chatId: id, messages: [m] });
+}
+
+// ── files coming back the other way ────────────────────────────────────────────────────────
+// The phone can't reach into the computer's disk, so a file only becomes fetchable once this chat has
+// pointed at it: either Claude ran `cchat send <file>`, or it named the file in its reply. Each one gets
+// a token, and only tokens this chat knows can be fetched — nothing else on the computer is exposed.
+
+const SHOWABLE = /\.(png|jpe?g|gif|webp|heic|svg|pdf|mp4|mov|m4v|webm)$/i;
+const KINDS = { png: "image", jpg: "image", jpeg: "image", gif: "image", webp: "image", heic: "image",
+  svg: "image", pdf: "pdf", mp4: "video", mov: "video", m4v: "video", webm: "video" };
+const MIME = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp",
+  heic: "image/heic", svg: "image/svg+xml", pdf: "application/pdf", mp4: "video/mp4", mov: "video/quicktime",
+  m4v: "video/x-m4v", webm: "video/webm" };
+const MAX_SHARE = 60e6; // 60 MB: enough for a render or a short clip, not a whole project
+
+// Remember one file for this chat and describe it for the phone.
+function shareFile(id, file) {
+  const r = rt(id);
+  let stat;
+  try { stat = fs.statSync(file); } catch { return null; }
+  if (!stat.isFile() || stat.size > MAX_SHARE) return null;
+  const ext = path.extname(file).slice(1).toLowerCase();
+  const token = crypto.createHash("sha1").update(file).digest("hex").slice(0, 16);
+  r.shared ||= new Map();
+  r.shared.set(token, file);
+  if (r.shared.size > 300) r.shared.delete(r.shared.keys().next().value); // forget the oldest
+  return { token, name: path.basename(file), size: stat.size, kind: KINDS[ext] || "file" };
+}
+
+// Files Claude named in its reply — "saved it to /Users/…/render.png", or just "public/render.png",
+// which is how it usually writes them. A relative one is looked for in the chat's own folder. Only
+// pictures, clips and documents count, and only if the file is really there, so ordinary words that
+// happen to look like paths are ignored.
+function filesNamedIn(id, text) {
+  const base = chats[id]?.cwd || WORKDIR;
+  const found = [];
+  for (const m of String(text).matchAll(/(?:^|[\s"'`(<[])((?:~\/|\/)?[\w.@+-]+(?:\/[\w.@+ -]+)*\.[a-z0-9]{2,4})/gi)) {
+    const named = m[1].replace(/[.,;:]$/, "");
+    if (!SHOWABLE.test(named) || found.some((f) => f.name === path.basename(named))) continue;
+    const file = named.startsWith("~/") ? path.join(HOME, named.slice(2))
+      : path.isAbsolute(named) ? named : path.resolve(base, named);
+    const shared = shareFile(id, file);
+    if (shared) found.push(shared);
+    if (found.length === 4) break;
+  }
+  return found.length ? found : undefined;
 }
 
 // What one of Claude Code's own commands showed, as a card in the chat.
@@ -353,9 +399,14 @@ const WINDOWS_DIRS = IS_WSL ? [
 ].filter((d) => d && fs.existsSync(d)) : [];
 const WSL_PATH = [process.env.PATH, ...WINDOWS_DIRS].filter(Boolean).join(":");
 
+// Claude can't know it's being read on a phone unless it's told, and then it can send things back.
+const PHONE_NOTE = "This session is mirrored to an iPhone by claude-chat, so your replies are read there. " +
+  "To show a file on that phone — a render, a screenshot, a diagram, a document — run: cchat send <path> [caption]. " +
+  "Writing a file's full path in your reply also makes it appear there, so mention where you saved things.";
+
 async function startClaude(c, { resume = false } = {}) {
   const args = [CLAUDE, resume ? "--resume" : "--session-id", c.sessionId, "-n", c.name,
-    "--permission-mode", "bypassPermissions", "--settings", HOOKS_FILE];
+    "--permission-mode", "bypassPermissions", "--settings", HOOKS_FILE, "--append-system-prompt", PHONE_NOTE];
   await tmux("new-session", "-d", "-s", c.tmux, "-c", c.cwd || WORKDIR, "-x", "140", "-y", "45",
     "-e", `CLAUDE_CHAT_ID=${c.id}`, "-e", `CLAUDE_CHAT_PORT=${PORT}`, "-e", `CLAUDE_CHAT_DATA=${DATA}`,
     ...(IS_WSL ? ["-e", `PATH=${WSL_PATH}`] : []), args.map(shq).join(" "));
@@ -814,6 +865,21 @@ async function api(req, res, url) {
   }
 
   // A photo you sent, for the phone to show in the chat.
+  // A file this chat has pointed at, fetched by its token.
+  const shared = url.pathname.match(/^\/api\/chats\/([\w-]+)\/files\/([0-9a-f]{16})$/);
+  if (shared && req.method === "GET") {
+    const file = rt(shared[1]).shared?.get(shared[2]);
+    if (!chats[shared[1]] || !file || !fs.existsSync(file)) throw fail("Not found", 404);
+    const ext = path.extname(file).slice(1).toLowerCase();
+    res.writeHead(200, {
+      "content-type": MIME[ext] || "application/octet-stream",
+      "content-length": fs.statSync(file).size,
+      "content-disposition": `${KINDS[ext] ? "inline" : "attachment"}; filename="${path.basename(file).replace(/"/g, "")}"`,
+      "cache-control": "private, max-age=600",
+    });
+    return fs.createReadStream(file).pipe(res);
+  }
+
   const photo = url.pathname.match(/^\/api\/chats\/([\w-]+)\/photos\/(\d+\.jpg)$/);
   if (photo && req.method === "GET") {
     const file = path.join(PHOTO_DIR, photo[1], photo[2]);
@@ -851,6 +917,22 @@ async function api(req, res, url) {
       if (r.pending) throw fail(r.pending.questions ? "Claude asked you a question first. Answer it above." : "Claude is waiting for your approval first.", 409);
       await queue(r, () => sendText(c, text));
       return json(res, { ok: true });
+    }
+    case "POST share": {
+      // `cchat send <file>` on the computer: show this file on the phone.
+      const b = await body(req);
+      const file = path.resolve(String(b.path || "").replace(/^~/, HOME));
+      const shared = shareFile(id, file);
+      if (!shared) throw fail("That file isn't there, or it's bigger than 60 MB.", 404);
+      const caption = String(b.caption || "").trim().slice(0, 500);
+      const m = { id: crypto.randomUUID(), role: "file", ...shared, caption, at: Date.now() };
+      r.messages.push(m);
+      r.lastAt = m.at;
+      r.lastText = `📎 ${shared.name}`;
+      broadcast({ type: "messages", chatId: id, messages: [m] });
+      chatChanged(id);
+      notify(id, `Sent you ${shared.name}${caption ? ` — ${caption}` : ""}`);
+      return json(res, m);
     }
     case "POST photo": {
       // A photo from the phone (already shrunk to a JPEG there): saved in data/photos, and Claude is
