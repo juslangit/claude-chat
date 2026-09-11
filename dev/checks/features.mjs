@@ -295,9 +295,14 @@ try {
   B = (await req("POST", "/api/chats", { body: { name: "second chat", terminal: false } })).json;
   await js(`go("chats"); true`);
   check("list shows both chats, newest on top", await until(`(() => { const r = document.querySelectorAll("#chat-list .row"); return r.length >= 2 && r[0].dataset.id === "home/${B.id}"; })()`, 10000));
-  await swipe(`#chat-list .row[data-id="home/${A.id}"]`, 0);
-  check("swiping a chat pins it to the top", await until(`(() => { const r = document.querySelector("#chat-list .row"); return r.dataset.id === "home/${A.id}" && !!r.querySelector(".pin") && JSON.parse(localStorage.pinned).includes("home/${A.id}"); })()`, 3000));
-  check("the swipe didn't also open the chat", await js(`location.hash === "#chats"`));
+  // hold the first chat half a second for its menu, let go, then Pin
+  await js(`(() => { const el = document.querySelector('#chat-list .row[data-id="home/${A.id}"]'), r = el.getBoundingClientRect(); el.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: r.left + 40, clientY: r.top + r.height / 2, pointerId: 8, pointerType: "touch", button: 0, isPrimary: true })); return true; })()`);
+  check("holding a chat opens its menu", await until(`!document.querySelector("#row-menu").hidden`, 1500));
+  await js(`dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: 8, pointerType: "touch", isPrimary: true })); true`);
+  await sleep(500);
+  await js(`document.querySelector("#row-pin").click(); true`);
+  check("…and Pin pins it to the top", await until(`(() => { const r = document.querySelector("#chat-list .row"); return r.dataset.id === "home/${A.id}" && !!r.querySelector(".pin") && JSON.parse(localStorage.pinned).includes("home/${A.id}"); })()`, 3000));
+  check("…without also opening the chat", await js(`location.hash === "#chats"`));
   await shot("list-pinned");
   await js(`go("settings"); true`);
   await sleep(300);
