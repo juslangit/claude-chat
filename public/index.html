@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Claude Chats">
-<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#fff4e6" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0c0806" media="(prefers-color-scheme: dark)">
 <link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" href="/icon.png">
 <link rel="stylesheet" href="/style.css">
@@ -16,15 +16,44 @@
 </head>
 <body>
 
-<!-- ── chat list (WhatsApp's "Chats" tab) ────────────── -->
-<section id="list-view" class="view">
-  <header id="list-nav" class="nav list-nav">
-    <button id="list-more" class="circle-btn" aria-label="More"><span><svg width="18" height="18" viewBox="0 0 18 18" fill="currentColor"><circle cx="3.5" cy="9" r="1.7"/><circle cx="9" cy="9" r="1.7"/><circle cx="14.5" cy="9" r="1.7"/></svg></span></button>
+<!-- the warm light behind everything -->
+<div class="glow" aria-hidden="true"><i class="streak s1"></i><i class="streak s2"></i><i class="streak s3"></i></div>
+
+<!-- ── Home ──────────────────────────────────────────── -->
+<section id="home-view" class="view" hidden>
+  <main class="page">
+    <header class="hello">
+      <span id="hello-avatar" class="hello-face"></span>
+      <span id="hello-text" class="hello-text">Hello</span>
+      <button id="home-new" class="glass-btn" aria-label="New chat"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
+    </header>
+
+    <h1 class="hero">Claude Code,<br>on your phone</h1>
+
+    <form id="ask-box" class="ask">
+      <svg class="spark" width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5l1.9 5.6 5.6 1.9-5.6 1.9L12 17.5l-1.9-5.6L4.5 10l5.6-1.9zM18.5 15l.9 2.6 2.6.9-2.6.9-.9 2.6-.9-2.6-2.6-.9 2.6-.9z"/></svg>
+      <input id="ask-input" placeholder="What shall we build?" autocomplete="off" enterkeyhint="go">
+      <button id="ask-go" class="round-go" aria-label="Start a chat with this"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h15M13 6l6 6-6 6"/></svg></button>
+    </form>
+
+    <div id="day-card" class="day-card"></div>
+
+    <div class="section-head"><h2>Happening now</h2><button id="see-all" class="link">See all</button></div>
+    <div id="activity" class="activity"></div>
+
+    <div class="section-head"><h2>Your computers</h2></div>
+    <div id="home-computers" class="home-computers"></div>
+  </main>
+</section>
+
+<!-- ── Chats ─────────────────────────────────────────── -->
+<section id="list-view" class="view" hidden>
+  <header id="list-nav" class="nav">
+    <span class="nav-side"></span>
     <div id="nav-title" class="nav-title">Chats</div>
-    <button id="new-chat" class="circle-btn green" aria-label="New chat"><span><svg width="16" height="16" viewBox="0 0 16 16" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M8 2v12M2 8h12"/></svg></span></button>
+    <span class="nav-side right"><button id="new-chat" class="glass-btn" aria-label="New chat"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button></span>
   </header>
-  <main id="list-scroll" class="list-scroll">
-    <h1 class="big-title">Chats</h1>
+  <main id="list-scroll" class="page">
     <label class="search">
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="7" cy="7" r="5"/><path d="m11 11 3.5 3.5"/></svg>
       <input id="search" type="search" placeholder="Search" autocomplete="off" enterkeyhint="search">
@@ -38,24 +67,57 @@
     <!-- a note for each computer the phone can't reach: "Luqman's MacBook Air — offline since 19:43" -->
     <div id="offline-notes"></div>
     <div id="chat-list"></div>
-    <p class="footnote"><svg width="11" height="13" viewBox="0 0 11 13" fill="currentColor" fill-rule="evenodd"><path d="M2 5.5V4a3.5 3.5 0 0 1 7 0v1.5h.5a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1h-8a1 1 0 0 1-1-1V6.5a1 1 0 0 1 1-1zm1.5 0h4V4a2 2 0 0 0-4 0z"/></svg>Your chats run on your Mac and reach this phone only over your private Tailscale network.</p>
+    <p class="footnote"><svg width="11" height="13" viewBox="0 0 11 13" fill="currentColor" fill-rule="evenodd"><path d="M2 5.5V4a3.5 3.5 0 0 1 7 0v1.5h.5a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1h-8a1 1 0 0 1-1-1V6.5a1 1 0 0 1 1-1zm1.5 0h4V4a2 2 0 0 0-4 0z"/></svg>Your chats run on your own computers and reach this phone only over your private Tailscale network.</p>
+  </main>
+</section>
+
+<!-- ── Computers ─────────────────────────────────────── -->
+<section id="computers-view" class="view" hidden>
+  <header class="nav"><span class="nav-side"></span><div class="nav-title">Computers</div><span class="nav-side right"></span></header>
+  <main class="page">
+    <div id="computer-list" class="group"></div>
+    <button id="add-computer" class="btn plain">Add a computer</button>
+    <div id="add-box" class="add-box" hidden>
+      <p>1. On the new computer, install Tailscale and sign in with the same account as this iPhone.</p>
+      <p>2. Paste this line — on a <b>Mac</b>, in Terminal:</p>
+      <code id="add-mac" class="line"></code>
+      <p>or on a <b>Windows PC</b>, in PowerShell:</p>
+      <code id="add-windows" class="line"></code>
+      <p>3. When it asks for the pairing code, type:</p>
+      <div id="add-code" class="code"></div>
+      <p class="muted">Works once, for 30 minutes. It lets that computer receive your Claude setup, keys included.</p>
+    </div>
+    <p class="sheet-note">A computer shows up here by itself once claude-chat is installed on it and it's signed in to the same Tailscale account.</p>
+  </main>
+</section>
+
+<!-- ── Settings ──────────────────────────────────────── -->
+<section id="settings-view" class="view" hidden>
+  <header class="nav"><span class="nav-side"></span><div class="nav-title">Settings</div><span class="nav-side right"></span></header>
+  <main class="page">
+    <div class="group">
+      <button id="read-all" class="cell">Mark everything read</button>
+      <button id="sound-toggle" class="cell">Reply sound<span id="sound-state" class="muted"></span></button>
+      <button id="notify-toggle" class="cell">Notifications<span id="notify-state" class="muted"></span></button>
+      <button id="computers-btn" class="cell">Computers<span id="computers-count" class="muted"></span></button>
+    </div>
+    <p class="sheet-note">Notifications work in the Home Screen app: add Claude Chats to your Home Screen, open it from there, then turn them on.</p>
   </main>
 </section>
 
 <!-- ── one chat ──────────────────────────────────────── -->
 <section id="chat-view" class="view" hidden>
   <header class="nav chat-nav">
-    <button id="back" class="back" aria-label="Back to chats"><svg width="13" height="21" viewBox="0 0 13 21" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M11 2 2.5 10.5 11 19"/></svg><span id="back-count"></span></button>
+    <button id="back" class="back" aria-label="Back to chats"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12H4M10 6l-6 6 6 6"/></svg><span id="back-count"></span></button>
     <button id="chat-head" class="chat-head" aria-label="Chat info">
       <span id="chat-avatar"></span>
       <span class="title"><span id="chat-name"></span><span id="chat-status" class="sub"></span></span>
     </button>
-    <button id="call-btn" class="icon-btn" aria-label="Voice call"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M5 3.5h3.2l1.6 4-2.1 1.5a11 11 0 0 0 7.3 7.3l1.5-2.1 4 1.6V19a1.8 1.8 0 0 1-1.9 1.8C10.3 20.3 3.7 13.7 3.2 5.4A1.8 1.8 0 0 1 5 3.5z"/></svg></button>
-    <button id="commands-btn" class="icon-btn" aria-label="Claude Code commands"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M14.5 4.5 9.5 19.5"/><path d="M6 8.5 2.5 12 6 15.5M18 8.5 21.5 12 18 15.5"/></svg></button>
-    <button id="screen-btn" class="icon-btn" aria-label="See the Mac's Terminal"><svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4" width="19" height="13" rx="2"/><path d="M8 21h8M12 17v4M6.5 8.5l2.5 2-2.5 2M11 12.5h3"/></svg></button>
+    <button id="call-btn" class="glass-btn" aria-label="Voice call"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><path d="M5 3.5h3.2l1.6 4-2.1 1.5a11 11 0 0 0 7.3 7.3l1.5-2.1 4 1.6V19a1.8 1.8 0 0 1-1.9 1.8C10.3 20.3 3.7 13.7 3.2 5.4A1.8 1.8 0 0 1 5 3.5z"/></svg></button>
+    <button id="commands-btn" class="glass-btn" aria-label="Claude Code commands"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14.5 4.5 9.5 19.5"/><path d="M6 8.5 2.5 12 6 15.5M18 8.5 21.5 12 18 15.5"/></svg></button>
+    <button id="screen-btn" class="glass-btn" aria-label="See the computer's Terminal"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4" width="19" height="13" rx="2.5"/><path d="M8 21h8M12 17v4M6.5 8.5l2.5 2-2.5 2M11 12.5h3"/></svg></button>
   </header>
 
-  <!-- the stage carries the wallpaper, so it sits still behind the messages and the approval card -->
   <div class="stage">
     <!-- search inside this chat (Chat info → Search) -->
     <div id="find" class="find" hidden>
@@ -68,6 +130,7 @@
       <button id="find-down" class="arrow" aria-label="Later match"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5.5 8 10.5l5-5"/></svg></button>
       <button id="find-done" class="link">Done</button>
     </div>
+
     <main id="scroller" class="scroller">
       <div id="messages" class="messages"></div>
       <!-- "typing…", plus what Claude is doing: its latest note and latest step -->
@@ -75,8 +138,8 @@
     </main>
 
     <div id="approval" class="approval" hidden>
-      <div class="bubble in tail approval-card">
-        <div class="approval-head">⚠️ Claude wants to use <b id="approval-tool"></b></div>
+      <div class="bubble in approval-card">
+        <div class="approval-head">Claude wants to use <b id="approval-tool"></b></div>
         <div id="approval-why" class="approval-why"></div>
         <pre id="approval-detail"></pre>
       </div>
@@ -104,7 +167,7 @@
 
   <div id="ended" class="ended" hidden>
     <p>Claude has stopped in this chat.</p>
-    <button id="resume">Resume on the Mac</button>
+    <button id="resume">Resume on the computer</button>
   </div>
 
   <!-- the message you're replying to (swipe a message to the right) -->
@@ -115,19 +178,27 @@
 
   <footer id="composer" class="composer">
     <!-- + : send a photo, or take one -->
-    <button id="attach" class="attach" aria-label="Send a photo"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
+    <button id="attach" class="round-btn" aria-label="Send a photo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
     <input id="photo-input" type="file" accept="image/*" hidden>
-    <div class="field"><textarea id="input" rows="1"></textarea></div>
+    <div class="field"><textarea id="input" rows="1" placeholder="Your message"></textarea></div>
     <div id="rec-bar" class="rec-bar" hidden><span class="rec-dot"></span><span id="rec-time">0:00</span><span class="rec-cancel">‹ Slide to cancel</span></div>
-    <button id="stop" class="round stop" aria-label="Stop Claude" hidden><svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><rect x="1" y="1" width="12" height="12" rx="2.5"/></svg></button>
-    <button id="send" class="round send" aria-label="Send"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M3.4 20.4 21.5 12 3.4 3.6l-.01 6.53L15.5 12 3.39 13.87z"/></svg></button>
-    <!-- hold to record a voice note, like WhatsApp -->
-    <button id="mic" class="mic" aria-label="Hold to talk"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></button>
+    <button id="stop" class="round-btn stop" aria-label="Stop Claude" hidden><svg width="13" height="13" viewBox="0 0 14 14" fill="currentColor"><rect x="1" y="1" width="12" height="12" rx="2.5"/></svg></button>
+    <button id="send" class="round-btn send" aria-label="Send"><svg width="19" height="19" viewBox="0 0 24 24" fill="currentColor"><path d="M3.4 20.4 21.5 12 3.4 3.6l-.01 6.53L15.5 12 3.39 13.87z"/></svg></button>
+    <!-- hold to record a voice note -->
+    <button id="mic" class="round-btn mic" aria-label="Hold to talk"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></button>
   </footer>
 </section>
 
+<!-- ── the floating bar at the bottom ─────────────────── -->
+<nav id="tabs" class="tabs" hidden>
+  <button class="tab" data-tab="home"><span class="tab-icon"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><path d="M4 10.5 12 4l8 6.5V19a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 19z"/></svg></span>Home</button>
+  <button class="tab" data-tab="chats"><span class="tab-icon"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><path d="M4 5.5h16v11H9l-5 4z"/></svg></span>Chats</button>
+  <button class="tab" data-tab="computers"><span class="tab-icon"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="11" rx="1.8"/><path d="M2 19.5h20"/></svg></span>Computers</button>
+  <button class="tab" data-tab="settings"><span class="tab-icon"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.4M12 18.8v2.4M21.2 12h-2.4M5.2 12H2.8M18.5 5.5l-1.7 1.7M7.2 16.8l-1.7 1.7M18.5 18.5l-1.7-1.7M7.2 7.2 5.5 5.5"/></svg></span>Settings</button>
+</nav>
+
 <!-- ── sheets that slide up from the bottom ──────────── -->
-<!-- New chat: your projects, listed like WhatsApp contacts. Tap one and Claude starts in that folder. -->
+<!-- New chat: your projects. Tap one and Claude starts in that folder. -->
 <div id="new-sheet" class="sheet" hidden>
   <div class="card tall">
     <div class="grabber"></div>
@@ -148,19 +219,6 @@
   </div>
 </div>
 
-<div id="list-menu" class="sheet" hidden>
-  <div class="card">
-    <div class="grabber"></div>
-    <div class="group">
-      <button id="read-all" class="cell">Read all</button>
-      <button id="sound-toggle" class="cell">Reply sound<span id="sound-state" class="muted"></span></button>
-      <button id="notify-toggle" class="cell">Notifications<span id="notify-state" class="muted"></span></button>
-      <button id="computers-btn" class="cell">Computers<span id="computers-count" class="muted"></span></button>
-    </div>
-    <button class="btn plain close">Cancel</button>
-  </div>
-</div>
-
 <div id="info" class="sheet" hidden>
   <div class="card info">
     <div class="grabber"></div>
@@ -171,11 +229,11 @@
       <p id="info-sub"></p>
     </div>
     <div class="tiles">
-      <button id="info-call" class="tile"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M5 3.5h3.2l1.6 4-2.1 1.5a11 11 0 0 0 7.3 7.3l1.5-2.1 4 1.6V19a1.8 1.8 0 0 1-1.9 1.8C10.3 20.3 3.7 13.7 3.2 5.4A1.8 1.8 0 0 1 5 3.5z"/></svg><span>Call</span></button>
-      <button id="info-screen" class="tile"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4" width="19" height="13" rx="2"/><path d="M8 21h8M12 17v4M6.5 8.5l2.5 2-2.5 2M11 12.5h3"/></svg><span>Screen</span></button>
-      <button id="open-mac" class="tile"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="11" rx="1.5"/><path d="M2 19.5h20"/></svg><span id="open-mac-label">Open on Mac</span></button>
-      <button id="rename" class="tile"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13 7 4 4"/></svg><span>Rename</span></button>
-      <button id="info-search" class="tile"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg><span>Search</span></button>
+      <button id="info-call" class="tile"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M5 3.5h3.2l1.6 4-2.1 1.5a11 11 0 0 0 7.3 7.3l1.5-2.1 4 1.6V19a1.8 1.8 0 0 1-1.9 1.8C10.3 20.3 3.7 13.7 3.2 5.4A1.8 1.8 0 0 1 5 3.5z"/></svg><span>Call</span></button>
+      <button id="info-screen" class="tile"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4" width="19" height="13" rx="2"/><path d="M8 21h8M12 17v4M6.5 8.5l2.5 2-2.5 2M11 12.5h3"/></svg><span>Screen</span></button>
+      <button id="open-mac" class="tile"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="11" rx="1.5"/><path d="M2 19.5h20"/></svg><span id="open-mac-label">Open on Mac</span></button>
+      <button id="rename" class="tile"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13 7 4 4"/></svg><span>Rename</span></button>
+      <button id="info-search" class="tile"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg><span>Search</span></button>
     </div>
     <div class="group">
       <div class="cell"><span>Computer</span><span id="info-computer" class="muted"></span></div>
@@ -190,58 +248,16 @@
   </div>
 </div>
 
-<!-- Computers: every computer running claude-chat on your Tailscale network -->
-<div id="computers" class="sheet" hidden>
-  <div class="card">
-    <div class="grabber"></div>
-    <div class="sheet-nav"><span></span><b>Computers</b><button class="link right close">Done</button></div>
-    <div id="computer-list" class="group"></div>
-    <button id="add-computer" class="btn plain">Add a computer</button>
-    <div id="add-box" class="add-box" hidden>
-      <p>1. On the new computer, install Tailscale and sign in with the same account as this iPhone.</p>
-      <p>2. Paste this line — on a <b>Mac</b>, in Terminal:</p>
-      <code id="add-mac" class="line"></code>
-      <p>or on a <b>Windows PC</b>, in PowerShell:</p>
-      <code id="add-windows" class="line"></code>
-      <p>3. When it asks for the pairing code, type:</p>
-      <div id="add-code" class="code"></div>
-      <p class="muted">Works once, for 30 minutes. It lets that computer receive your Claude setup, keys included.</p>
-    </div>
-    <p class="sheet-note">A computer shows up here by itself once claude-chat is installed on it and it's signed in to the same Tailscale account.</p>
-  </div>
-</div>
-
 <div id="screen" class="sheet" hidden>
   <div class="card screen">
     <div class="grabber"></div>
-    <div class="sheet-nav"><span></span><b>Mac Terminal</b><button class="link right close">Done</button></div>
+    <div class="sheet-nav"><span></span><b>The computer's Terminal</b><button class="link right close">Done</button></div>
     <pre id="screen-text"></pre>
     <div class="keys">
       <button data-key="1">1</button><button data-key="2">2</button><button data-key="3">3</button><button data-key="4">4</button><button data-key="5">5</button>
       <button data-key="6">6</button><button data-key="7">7</button><button data-key="8">8</button><button data-key="9">9</button><button data-key="esc">Esc</button>
       <button data-key="up">↑</button><button data-key="down">↓</button><button data-key="tab">Tab</button><button data-key="shifttab">⇧Tab</button><button data-key="enter">⏎</button>
     </div>
-  </div>
-</div>
-
-<!-- ── voice call: a WhatsApp-style call screen. You talk, Claude answers out loud. ── -->
-<div id="call" class="call" data-mode="idle" hidden>
-  <div class="call-label"><svg width="11" height="13" viewBox="0 0 11 13" fill="currentColor" fill-rule="evenodd"><path d="M2 5.5V4a3.5 3.5 0 0 1 7 0v1.5h.5a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1h-8a1 1 0 0 1-1-1V6.5a1 1 0 0 1 1-1zm1.5 0h4V4a2 2 0 0 0-4 0z"/></svg>Voice call · speech stays on your iPhone</div>
-  <div id="call-avatar"></div>
-  <h2 id="call-name"></h2>
-  <div id="call-time" class="call-time">00:00</div>
-  <div class="call-middle">
-    <div id="call-state" class="call-state"></div>
-    <div id="call-heard" class="call-heard"></div>
-    <div id="call-said" class="call-said"></div>
-  </div>
-  <div id="call-approval" class="call-approval" hidden>
-    <button id="call-deny">Deny</button><button id="call-approve">Approve</button>
-  </div>
-  <div class="call-btns">
-    <button id="call-mute" class="call-btn"><span class="circle"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M4 4l16 16"/></svg></span>Mute</button>
-    <button id="call-end" class="call-btn end"><span class="circle"><svg width="30" height="30" viewBox="0 0 24 24" fill="currentColor"><path transform="rotate(135 12 12)" d="M5 3.5h3.2l1.6 4-2.1 1.5a11 11 0 0 0 7.3 7.3l1.5-2.1 4 1.6V19a1.8 1.8 0 0 1-1.9 1.8C10.3 20.3 3.7 13.7 3.2 5.4A1.8 1.8 0 0 1 5 3.5z"/></svg></span>End</button>
-    <button id="call-skip" class="call-btn"><span class="circle"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M5 5.5v13l9.5-6.5zM16.5 5.5h2.2v13h-2.2z"/></svg></span>Skip</button>
   </div>
 </div>
 
@@ -267,13 +283,34 @@
     <img id="photo-preview" alt="The photo you picked">
     <div class="photo-bar">
       <input id="photo-caption" placeholder="Add a caption…" autocomplete="off" enterkeyhint="send">
-      <button id="photo-send" class="round send" aria-label="Send the photo"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M3.4 20.4 21.5 12 3.4 3.6l-.01 6.53L15.5 12 3.39 13.87z"/></svg></button>
+      <button id="photo-send" class="round-btn send" aria-label="Send the photo"><svg width="19" height="19" viewBox="0 0 24 24" fill="currentColor"><path d="M3.4 20.4 21.5 12 3.4 3.6l-.01 6.53L15.5 12 3.39 13.87z"/></svg></button>
     </div>
   </div>
 </div>
 
 <!-- a photo in the chat, full screen; tap to close -->
 <div id="viewer" class="viewer" hidden><img id="viewer-img" alt="Photo"></div>
+
+<!-- ── voice call ─────────────────────────────────────── -->
+<div id="call" class="call" data-mode="idle" hidden>
+  <div class="call-label"><svg width="11" height="13" viewBox="0 0 11 13" fill="currentColor" fill-rule="evenodd"><path d="M2 5.5V4a3.5 3.5 0 0 1 7 0v1.5h.5a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1h-8a1 1 0 0 1-1-1V6.5a1 1 0 0 1 1-1zm1.5 0h4V4a2 2 0 0 0-4 0z"/></svg>Voice call · speech stays on your iPhone</div>
+  <div id="call-avatar"></div>
+  <h2 id="call-name"></h2>
+  <div id="call-time" class="call-time">00:00</div>
+  <div class="call-middle">
+    <div id="call-state" class="call-state"></div>
+    <div id="call-heard" class="call-heard"></div>
+    <div id="call-said" class="call-said"></div>
+  </div>
+  <div id="call-approval" class="call-approval" hidden>
+    <button id="call-deny">Deny</button><button id="call-approve">Approve</button>
+  </div>
+  <div class="call-btns">
+    <button id="call-mute" class="call-btn"><span class="circle"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M4 4l16 16"/></svg></span>Mute</button>
+    <button id="call-end" class="call-btn end"><span class="circle"><svg width="30" height="30" viewBox="0 0 24 24" fill="currentColor"><path transform="rotate(135 12 12)" d="M5 3.5h3.2l1.6 4-2.1 1.5a11 11 0 0 0 7.3 7.3l1.5-2.1 4 1.6V19a1.8 1.8 0 0 1-1.9 1.8C10.3 20.3 3.7 13.7 3.2 5.4A1.8 1.8 0 0 1 5 3.5z"/></svg></span>End</button>
+    <button id="call-skip" class="call-btn"><span class="circle"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M5 5.5v13l9.5-6.5zM16.5 5.5h2.2v13h-2.2z"/></svg></span>Skip</button>
+  </div>
+</div>
 
 <div id="toast" class="toast" hidden></div>
 <script src="/app.js"></script>
