@@ -2112,12 +2112,14 @@ function measureScreen() {
     appH: probe("height:var(--app-h)").h,
     safeTop: inset.top, safeBottom: inset.bottom,
     viewBox: view && [Math.round(view.top), Math.round(view.bottom)],
+    page: Math.round(document.documentElement.getBoundingClientRect().height),
   };
 }
 function reportScreen(when) {
   try { api("/api/viewport", { body: { when, ...measureScreen() } }).catch(() => {}); } catch {}
 }
 setTimeout(() => reportScreen("start"), 1500);
+setTimeout(() => reportScreen("settled"), 6000); // the iPhone sometimes corrects the size a moment later
 addEventListener("orientationchange", () => setTimeout(() => reportScreen("turned"), 800));
 
 route();
