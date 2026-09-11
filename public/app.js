@@ -1085,11 +1085,15 @@ $("#rename").onclick = async () => {
   const name = prompt("Chat name", c?.name || "");
   if (name?.trim()) await chatApi(c, "", { method: "PATCH", body: { name } }).catch((e) => toast(e.message));
 };
+// Asks first. Used by Chat info and by holding a chat in the list.
+async function deleteChat(c) {
+  if (!c || !confirm("Delete this chat?\n\nClaude stops, and the conversation and any photos in it go for good. Whatever Claude built stays in your project folder.\n\nTo keep it but hide it, use Archive instead.")) return false;
+  try { await chatApi(c, "", { method: "DELETE" }); return true; }
+  catch (e) { toast(e.message); return false; }
+}
 $("#end-chat").onclick = async () => {
   closeSheets();
-  if (!confirm("Delete this chat?\n\nClaude stops, and the conversation and any photos in it go for good. Whatever Claude built stays in your project folder.\n\nTo keep it but hide it, use Archive instead.")) return;
-  try { await chatApi(cur(), "", { method: "DELETE" }); go("chats"); }
-  catch (e) { toast(e.message); }
+  if (await deleteChat(cur())) go("chats");
 };
 
 // The Mac screen: exactly what the Terminal shows, for menus the chat view can't show.
@@ -1474,6 +1478,7 @@ function swipeable(box, selector, onRight, onLeft) {
   });
   box.addEventListener("pointermove", (e) => {
     if (!s) return;
+    if (held) return void (s = null); // a hold opened the menu; moving the finger now isn't a swipe
     const dx = e.clientX - s.x, dy = e.clientY - s.y;
     if (!s.on) {
       if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) return void (s = null); // that's a scroll
@@ -1544,6 +1549,47 @@ async function toggleArchive(key) {
   } catch (e) { toast(e.message); }
 }
 $("#archive-chat").onclick = () => { closeSheets(); if (state.current) toggleArchive(state.current); };
+
+// ── hold a chat for its menu: pin, archive or delete, without opening it ──────
+// Half a second without moving. Moving first means you're scrolling or swiping instead.
+let held = false; // set while the finger that opened the menu is still down
+function holdable(box, selector, onHold) {
+  let h = null;
+  const stop = () => { if (!h) return; clearTimeout(h.timer); h.el.classList.remove("holding"); h = null; };
+  box.addEventListener("pointerdown", (e) => {
+    const el = e.target.closest(selector);
+    if (!el || e.button > 0) return;
+    stop();
+    el.classList.add("holding");
+    h = { el, x: e.clientX, y: e.clientY, timer: setTimeout(() => { stop(); held = true; onHold(el); }, 500) };
+  });
+  box.addEventListener("pointermove", (e) => { if (h && Math.hypot(e.clientX - h.x, e.clientY - h.y) > 10) stop(); });
+  box.addEventListener("pointerup", stop);
+  box.addEventListener("pointercancel", stop);
+  box.addEventListener("contextmenu", (e) => { if (e.target.closest(selector)) e.preventDefault(); });
+}
+// Letting go after a hold would otherwise "tap" whatever is under the finger — the chat, or the dimmed
+// background that closes the menu again.
+addEventListener("click", (e) => { if (held) { e.preventDefault(); e.stopPropagation(); } }, true);
+addEventListener("pointerup", () => { if (held) setTimeout(() => (held = false), 350); }, true);
+addEventListener("pointercancel", () => { held = false; }, true);
+
+let menuKey = null;
+holdable($("#chat-list"), ".row", (row) => {
+  const c = state.chats.get(row.dataset.id);
+  if (!c) return;
+  menuKey = c.key;
+  $("#row-menu-name").textContent = c.name;
+  $("#row-pin-label").textContent = isPinned(c) ? "Unpin chat" : "Pin chat";
+  $("#row-archive-label").textContent = isArchived(c) ? "Unarchive chat" : "Archive chat";
+  openSheet("#row-menu");
+});
+$("#row-pin").onclick = () => { closeSheets(); togglePin(menuKey); };
+$("#row-archive").onclick = () => { closeSheets(); toggleArchive(menuKey); };
+$("#row-delete").onclick = () => { closeSheets(); deleteChat(state.chats.get(menuKey)); };
+
+// Pinching doesn't zoom the app either (the viewport tag covers most of it; Safari needs this too).
+document.addEventListener("gesturestart", (e) => e.preventDefault());
 
 // Settings → a clear-out of everything that has stopped.
 $("#delete-stopped").onclick = async () => {
