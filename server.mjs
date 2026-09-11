@@ -105,15 +105,19 @@ catch (e) {
 let saveTimer;
 // Written to a spare file first and then swapped in, so a power cut in the middle of a save leaves the
 // old list whole instead of half a file.
-const save = () => {
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    try {
-      fs.writeFileSync(`${CHATS_FILE}.tmp`, JSON.stringify(chats, null, 2));
-      fs.renameSync(`${CHATS_FILE}.tmp`, CHATS_FILE);
-    } catch (e) { console.error("couldn't save the chat list:", e.message); }
-  }, 200);
-};
+function writeChats() {
+  saveTimer = null;
+  try {
+    fs.writeFileSync(`${CHATS_FILE}.tmp`, JSON.stringify(chats, null, 2));
+    fs.renameSync(`${CHATS_FILE}.tmp`, CHATS_FILE);
+  } catch (e) { console.error("couldn't save the chat list:", e.message); }
+}
+// A save waits 200 ms in case more changes are coming. Anything still waiting is written out when the
+// server is asked to stop, so a chat ended a moment before a restart doesn't come back afterwards.
+const save = () => { clearTimeout(saveTimer); saveTimer = setTimeout(writeChats, 200); };
+const saveNow = () => saveTimer && writeChats();
+process.on("exit", saveNow);
+for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"]) process.on(signal, () => { saveNow(); process.exit(0); });
 
 // Only in memory: what is happening in each chat right now.
 const runtime = {};
@@ -257,6 +261,14 @@ function pushSystem(id, text) {
   const m = { id: crypto.randomUUID(), role: "system", text, at: Date.now() };
   rt(id).messages.push(m);
   broadcast({ type: "messages", chatId: id, messages: [m] });
+}
+
+// What one of Claude Code's own commands showed, as a card in the chat.
+function pushCommand(id, command, text, asks) {
+  const m = { id: crypto.randomUUID(), role: "command", command, text, asks, at: Date.now() };
+  rt(id).messages.push(m);
+  broadcast({ type: "messages", chatId: id, messages: [m] });
+  return m;
 }
 
 // Only running chats can have anything new (a stopped one is read one last time as it stops).
@@ -533,6 +545,70 @@ async function sendText(c, text) {
 
 const queue = (r, fn) => (r.chain = (r.chain || Promise.resolve()).catch(() => {}).then(fn));
 
+// ── Claude Code's own commands (/usage, /model, /context…) ─────────────────────────────────
+// These don't answer in the conversation: Claude Code draws the answer in the Terminal itself, and
+// nothing about it reaches the transcript (checked 2026-09-11 with /usage, /status and /model). So the
+// screen is read straight afterwards and sent to the phone as a card. A panel that only shows you
+// something is then closed with Esc, so the chat isn't left stuck behind it; one that asks you to pick
+// (like /model) stays open, and the phone opens its screen view.
+const COMMAND_WAIT_MS = 1500;
+const asksYou = (screen) => /(?:^|\s)(?:Enter|Tab|Space) to \S/.test(screen) || /^\s*❯\s*\d+\./m.test(screen);
+
+async function runCommand(c, command) {
+  const capture = async () => (await tmux("capture-pane", "-p", "-t", c.tmux)).split("\n");
+  const before = await capture();
+  await sendText(c, command);
+  await sleep(COMMAND_WAIT_MS);
+  let after = await capture();
+  let text = newOnScreen(before, after);
+  if (!text) { // a slow one: give it another moment
+    await sleep(COMMAND_WAIT_MS);
+    after = await capture();
+    text = newOnScreen(before, after);
+  }
+  const screen = after.join("\n");
+  const asks = boxIn(screen) == null && asksYou(screen);
+  if (boxIn(screen) == null && !asks) {
+    await tmux("send-keys", "-t", c.tmux, "Escape"); // just showing something: close it
+    await sleep(400);
+    if (boxIn((await capture()).join("\n")) == null) await tmux("send-keys", "-t", c.tmux, "Escape");
+  }
+  return pushCommand(c.id, command, text || "Done.", asks);
+}
+
+// What the screen gained: whatever was above stays put, so skip the lines that didn't change, and leave
+// out the input box and the footer below it — and the Terminal's own furniture (the Claude Code logo at
+// the top and its drawn rules), which is just noise in a chat.
+const FRAME_LINE = /^[\s▔▁─━═▬▂▃▄▅▆▇█▀]+$/;
+const LOGO_LINE = /^\s*[▝▘▗▖▛▜▙▟█]/;
+function newOnScreen(before, after) {
+  let i = 0;
+  while (i < after.length && i < before.length && after[i] === before[i]) i++;
+  const lines = after.slice(i).map((l) => l.trimEnd());
+  const rule = lines.findIndex((l) => /^\s*─{10,}/.test(l));
+  const kept = (rule >= 0 ? lines.slice(0, rule) : lines).filter((l) => !FRAME_LINE.test(l) && !LOGO_LINE.test(l));
+  while (kept.length && !kept[0].trim()) kept.shift();
+  while (kept.length && !kept.at(-1).trim()) kept.pop();
+  // Panels are drawn a few columns in from the edge; a narrow phone wants that space back.
+  const indent = Math.min(...kept.filter((l) => l.trim()).map((l) => l.match(/^ */)[0].length), 20);
+  return kept.slice(-60).map((l) => l.slice(indent)).join("\n").slice(0, 4000);
+}
+
+// Commands you've written yourself: yours in ~/.claude/commands, plus any in this chat's project.
+function listCommands(cwd) {
+  const out = [];
+  for (const [dir, where] of [[path.join(HOME, ".claude/commands"), "yours"], ...(cwd ? [[path.join(cwd, ".claude/commands"), "this project"]] : [])]) {
+    let files = [];
+    try { files = fs.readdirSync(dir).filter((f) => f.endsWith(".md")); } catch { continue; }
+    for (const f of files) {
+      let about = "";
+      try { about = fs.readFileSync(path.join(dir, f), "utf8").match(/^description:\s*(.+)$/m)?.[1]?.trim() || ""; } catch {}
+      out.push({ name: `/${f.replace(/\.md$/, "")}`, about: about.replace(/^["']|["']$/g, "").slice(0, 120), where });
+    }
+  }
+  return out;
+}
+
 // ── permission requests: held open until the phone answers ─────────────────────────────────
 
 function askPhone(c, ev, res) {
@@ -682,6 +758,7 @@ const KEYS = { up: "Up", down: "Down", left: "Left", right: "Right", enter: "Ent
 
 async function api(req, res, url) {
   if (url.pathname === "/api/projects" && req.method === "GET") return json(res, listProjects());
+  if (url.pathname === "/api/commands" && req.method === "GET") return json(res, listCommands(chats[url.searchParams.get("chat")]?.cwd));
   if (url.pathname === "/api/whoami") return json(res, { name: COMPUTER, os: OS, url: SELF_URL, version: pageVersion() });
   if (url.pathname === "/api/computers") return json(res, await otherComputers());
   if (url.pathname === "/api/sync/code" && req.method === "POST") return json(res, await newPairCode(req));
@@ -767,6 +844,14 @@ async function api(req, res, url) {
       const caption = String(b.caption || "").trim().slice(0, 4000);
       await queue(r, () => sendText(c, `[📷 photo from my phone: ${file} — open it to see it]${caption ? `\n\n${caption}` : ""}`));
       return json(res, { ok: true });
+    }
+    case "POST command": {
+      // One of Claude Code's own commands, e.g. "/usage" — the answer comes back as a card (runCommand).
+      const command = String((await body(req)).command || "").trim();
+      if (!/^\/[a-z][\w-]*(?:\s[\s\S]{0,500})?$/i.test(command)) throw fail("That doesn't look like a command.");
+      if (!r.alive) throw fail("This chat's Claude has stopped. Tap Resume first.", 409);
+      if (r.pending) throw fail(r.pending.questions ? "Claude asked you a question first. Answer it above." : "Claude is waiting for your approval first.", 409);
+      return json(res, await queue(r, () => runCommand(c, command)));
     }
     case "POST key": {
       const k = KEYS[(await body(req)).key];

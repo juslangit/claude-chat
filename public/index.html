@@ -51,6 +51,7 @@
       <span class="title"><span id="chat-name"></span><span id="chat-status" class="sub"></span></span>
     </button>
     <button id="call-btn" class="icon-btn" aria-label="Voice call"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M5 3.5h3.2l1.6 4-2.1 1.5a11 11 0 0 0 7.3 7.3l1.5-2.1 4 1.6V19a1.8 1.8 0 0 1-1.9 1.8C10.3 20.3 3.7 13.7 3.2 5.4A1.8 1.8 0 0 1 5 3.5z"/></svg></button>
+    <button id="commands-btn" class="icon-btn" aria-label="Claude Code commands"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M14.5 4.5 9.5 19.5"/><path d="M6 8.5 2.5 12 6 15.5M18 8.5 21.5 12 18 15.5"/></svg></button>
     <button id="screen-btn" class="icon-btn" aria-label="See the Mac's Terminal"><svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4" width="19" height="13" rx="2"/><path d="M8 21h8M12 17v4M6.5 8.5l2.5 2-2.5 2M11 12.5h3"/></svg></button>
   </header>
 
@@ -216,7 +217,8 @@
     <div class="sheet-nav"><span></span><b>Mac Terminal</b><button class="link right close">Done</button></div>
     <pre id="screen-text"></pre>
     <div class="keys">
-      <button data-key="1">1</button><button data-key="2">2</button><button data-key="3">3</button><button data-key="4">4</button><button data-key="esc">Esc</button>
+      <button data-key="1">1</button><button data-key="2">2</button><button data-key="3">3</button><button data-key="4">4</button><button data-key="5">5</button>
+      <button data-key="6">6</button><button data-key="7">7</button><button data-key="8">8</button><button data-key="9">9</button><button data-key="esc">Esc</button>
       <button data-key="up">↑</button><button data-key="down">↓</button><button data-key="tab">Tab</button><button data-key="shifttab">⇧Tab</button><button data-key="enter">⏎</button>
     </div>
   </div>
@@ -240,6 +242,20 @@
     <button id="call-mute" class="call-btn"><span class="circle"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M4 4l16 16"/></svg></span>Mute</button>
     <button id="call-end" class="call-btn end"><span class="circle"><svg width="30" height="30" viewBox="0 0 24 24" fill="currentColor"><path transform="rotate(135 12 12)" d="M5 3.5h3.2l1.6 4-2.1 1.5a11 11 0 0 0 7.3 7.3l1.5-2.1 4 1.6V19a1.8 1.8 0 0 1-1.9 1.8C10.3 20.3 3.7 13.7 3.2 5.4A1.8 1.8 0 0 1 5 3.5z"/></svg></span>End</button>
     <button id="call-skip" class="call-btn"><span class="circle"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M5 5.5v13l9.5-6.5zM16.5 5.5h2.2v13h-2.2z"/></svg></span>Skip</button>
+  </div>
+</div>
+
+<!-- Claude Code's own commands, to tap instead of typing -->
+<div id="commands" class="sheet" hidden>
+  <div class="card tall">
+    <div class="grabber"></div>
+    <div class="sheet-nav"><button class="link close">Cancel</button><b>Commands</b><span></span></div>
+    <label class="search">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="7" cy="7" r="5"/><path d="m11 11 3.5 3.5"/></svg>
+      <input id="command-search" type="search" placeholder="Search commands" autocomplete="off" enterkeyhint="search">
+    </label>
+    <div id="command-list" class="command-list"></div>
+    <p class="sheet-note">These are Claude Code's own commands, run in this chat. What the Terminal shows comes back as a card in the chat; a command that asks you to pick something opens the screen.</p>
   </div>
 </div>
 
