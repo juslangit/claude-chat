@@ -38,7 +38,7 @@ const req = http.request({
     // Answers to one of Claude's questions come back as updatedInput, carrying what you picked.
     const decision = answer.behavior === "allow"
       ? { behavior: "allow", ...(answer.updatedInput && { updatedInput: answer.updatedInput }) }
-      : { behavior: "deny", message: answer.message || "Luqman denied this from his phone." };
+      : { behavior: "deny", message: answer.message || "The user denied this from their phone." };
     process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PermissionRequest", decision } }));
   });
 });
