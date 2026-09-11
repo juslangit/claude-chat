@@ -75,7 +75,7 @@ const apple = http.createServer((q, s) => {
 }).listen(RECV, "127.0.0.1");
 const waitPush = async (n, ms) => { const end = Date.now() + ms; while (Date.now() < end && pushes.length < n) await sleep(200); return pushes.length >= n; };
 
-let chrome, A, B;
+let chrome, A, B, C, E;
 try {
   startServer();
   check("server starts", await waitUp());
@@ -155,20 +155,35 @@ try {
   };
   const shot = async (name) => { await sleep(350); const { data } = await S("Page.captureScreenshot", { format: "png" }); fs.writeFileSync(`${SHOTS}/${name}.png`, Buffer.from(data, "base64")); };
   const until = async (expr, ms) => { const end = Date.now() + ms; while (Date.now() < end) { if (await js(expr).catch(() => false)) return true; await sleep(300); } return false; };
-  const swipeLeft = (selector) => js(`(() => {
-    const el = document.querySelector(${JSON.stringify(selector)});
-    const r = el.getBoundingClientRect(), x = r.right - 20, y = r.top + r.height / 2;
-    const ev = (type, dx) => el.dispatchEvent(new PointerEvent(type, { bubbles: true, clientX: x + dx, clientY: y, pointerId: 9, pointerType: "touch", button: 0, isPrimary: true }));
-    ev("pointerdown", 0); for (const dx of [-15, -30, -50, -70, -85]) ev("pointermove", dx); ev("pointerup", -85);
+  // A finger on a chat in the list, as pointer events. Holding one half a second opens its menu.
+  const rowOf = (id) => `#chat-list .row[data-id="home/${id}"]`;
+  const rowSel = rowOf(A.id);
+  const menuOpen = `!document.querySelector("#row-menu").hidden`;
+  const finger = (id, type, dx = 0) => js(`(() => {
+    const el = document.querySelector(${JSON.stringify(rowOf(id))});
+    const r = el.getBoundingClientRect();
+    el.dispatchEvent(new PointerEvent(${JSON.stringify(type)}, { bubbles: true, clientX: r.left + r.width / 2 + ${dx}, clientY: r.top + r.height / 2, pointerId: 11, pointerType: "touch", button: 0, isPrimary: true }));
     return true;
   })()`);
+  // Lifting the finger: the phone then "taps" the chat and the dimmed background under it.
+  const letGo = async (id = A.id) => { await finger(id, "pointerup"); await js(`document.querySelector(${JSON.stringify(rowOf(id))}).click(); document.querySelector("#row-menu").click(); true`); await sleep(500); };
+  const hold = async (id = A.id) => { await finger(id, "pointerdown"); return until(menuOpen, 1500); };
+  const menu = async (id, button) => { await hold(id); await letGo(id); await js(`document.querySelector("#${button}").click(); true`); };
+  const tap = async (id) => { await js(`document.querySelector(${JSON.stringify(rowOf(id))}).click(); true`); await sleep(150); };
+  const label = (id) => js(`document.querySelector("#${id}").textContent`);
+  const title = () => label("nav-title");
 
   await S("Page.navigate", { url: `http://127.0.0.1:${PORT}/#chats` });
   check("phone page connects", await until("home.online === true", 10000));
   check("no Archived row while nothing is archived", await js(`document.querySelector("#archived-row").hidden`));
 
-  await swipeLeft(`#chat-list .row[data-id="home/${A.id}"]`);
-  check("swiping a chat left archives it", await until(`document.querySelectorAll("#chat-list .row").length === 0`, 6000));
+  await finger(A.id, "pointerdown");
+  for (const dx of [-15, -30, -50, -70, -85]) await finger(A.id, "pointermove", dx);
+  await finger(A.id, "pointerup", -85);
+  await sleep(800);
+  check("swiping a chat does nothing now — holding it is the way", await js(`!!document.querySelector('${rowSel}')`) && !(await js(menuOpen)) && (await one(A.id))?.archived === false);
+  await menu(A.id, "row-archive");
+  check("hold → Archive archives it", await until(`document.querySelectorAll("#chat-list .row").length === 0`, 6000));
   check("…the Archived row appears with a count", await js(`(() => { const r = document.querySelector("#archived-row"); return !r.hidden && r.textContent.includes("Archived") && r.textContent.includes("1"); })()`));
   check("…and the computer knows, not just the phone", (await one(A.id))?.archived === true);
   await shot("1-list-archived");
@@ -176,28 +191,18 @@ try {
   await js(`document.querySelector("#archived-row").click(); true`);
   check("the Archived row opens what's inside", await until(`document.querySelectorAll("#chat-list .row").length === 1 && document.querySelector("#nav-title").textContent === "Archived"`, 4000));
   await shot("2-archived-view");
-  await swipeLeft(`#chat-list .row[data-id="home/${A.id}"]`);
-  check("swiping left again puts it back", await until(`document.querySelectorAll("#chat-list .row").length === 0`, 6000) && (await one(A.id))?.archived === false);
+  await hold(A.id);
+  check("…where the menu offers Unarchive", (await label("row-archive-label")) === "Unarchive chat");
+  await letGo(A.id);
+  await js(`document.querySelector("#row-archive").click(); true`);
+  check("hold → Unarchive puts it back", await until(`document.querySelectorAll("#chat-list .row").length === 0`, 6000) && (await one(A.id))?.archived === false);
   await js(`document.querySelector("#archived-row").click(); true`);
   check("back in the main list", await until(`document.querySelectorAll("#chat-list .row").length === 1 && document.querySelector("#nav-title").textContent === "Chats"`, 4000));
 
   // ── holding a chat: its menu, and no web-page sliding or zooming ──
-  const rowSel = `#chat-list .row[data-id="home/${A.id}"]`;
-  const menuOpen = `!document.querySelector("#row-menu").hidden`;
-  const finger = (type) => js(`(() => {
-    const el = document.querySelector(${JSON.stringify(rowSel)});
-    const r = el.getBoundingClientRect();
-    el.dispatchEvent(new PointerEvent(${JSON.stringify(type)}, { bubbles: true, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, pointerId: 11, pointerType: "touch", button: 0, isPrimary: true }));
-    return true;
-  })()`);
-  // Lifting the finger: the phone then "taps" the chat and the dimmed background under it.
-  const letGo = async () => { await finger("pointerup"); await js(`document.querySelector(${JSON.stringify(rowSel)}).click(); document.querySelector("#row-menu").click(); true`); await sleep(500); };
-  const hold = async () => { await finger("pointerdown"); return until(menuOpen, 1500); };
-  const label = (id) => js(`document.querySelector("#${id}").textContent`);
-
   check("the chat list can't be dragged sideways", await js(`getComputedStyle(document.querySelector("#chat-list").closest(".page")).overflowX === "hidden"`));
   check("double-tap and pinch don't zoom", await js(`document.querySelector("meta[name=viewport]").content.includes("user-scalable=no") && getComputedStyle(document.querySelector("#chat-list")).touchAction === "manipulation"`));
-  await finger("pointerdown"); await sleep(200); await finger("pointerup"); await sleep(600);
+  await finger(A.id, "pointerdown"); await sleep(200); await finger(A.id, "pointerup"); await sleep(600);
   check("a quick touch doesn't open the menu", !(await js(menuOpen)));
   check("holding a chat opens its menu", await hold());
   check("…with Pin, Archive and Delete for that chat", (await label("row-menu-name")) === "keeper renamed" && (await label("row-pin-label")) === "Pin chat" && (await label("row-archive-label")) === "Archive chat" && (await label("row-delete")) === "Delete chat");
@@ -215,6 +220,37 @@ try {
   check("menu → Archive archives it on the computer", await until(`!document.querySelector('${rowSel}')`, 6000) && (await one(A.id))?.archived === true);
   await req("PATCH", `/api/chats/${A.id}`, { body: { archived: false } });
   check("(put back for the next checks)", await until(`!!document.querySelector('${rowSel}')`, 6000));
+
+  await js(`window.prompt = () => "keeper held"; true`);
+  await menu(A.id, "row-rename");
+  check("hold → Rename renames it on the computer", await until(`document.querySelector('${rowSel} .name').textContent === "keeper held"`, 5000) && (await one(A.id))?.name === "keeper held");
+
+  // ── selecting several chats ──
+  C = (await req("POST", "/api/chats", { body: { name: "extra one", terminal: false } })).json;
+  E = (await req("POST", "/api/chats", { body: { name: "extra two", terminal: false } })).json;
+  check("(two more chats to select)", await until(`!!document.querySelector('${rowOf(C.id)}') && !!document.querySelector('${rowOf(E.id)}')`, 8000));
+  await menu(A.id, "row-select");
+  check("hold → Select chats starts selecting, with that chat ticked", (await title()) === "1 selected" && await js(`document.querySelector('${rowSel}').classList.contains("picked")`), await title());
+  check("…Archive and Delete take the tab bar's place, Done takes the +", await js(`!document.querySelector("#pick-bar").hidden && document.querySelector("#tabs").hidden && !document.querySelector("#pick-done").hidden && document.querySelector("#new-chat").hidden`));
+  await tap(C.id);
+  check("tapping another chat ticks it instead of opening it", (await title()) === "2 selected" && await js(`location.hash === "#chats"`));
+  await shot("6-selecting");
+  await tap(C.id);
+  check("…tapping it again unticks it", (await title()) === "1 selected");
+  await tap(C.id);
+  await js(`document.querySelector("#pick-archive").click(); true`);
+  check("Archive archives every ticked chat, and only those", await until(`!document.querySelector('${rowSel}') && !document.querySelector('${rowOf(C.id)}')`, 6000) && (await one(A.id))?.archived === true && (await one(C.id))?.archived === true && (await one(E.id))?.archived === false);
+  check("…and selecting ends", await js(`document.querySelector("#pick-bar").hidden && !document.querySelector("#tabs").hidden && document.querySelector("#nav-title").textContent === "Chats"`));
+  for (const x of [A, C]) await req("PATCH", `/api/chats/${x.id}`, { body: { archived: false } });
+  await until(`!!document.querySelector('${rowSel}') && !!document.querySelector('${rowOf(C.id)}')`, 6000);
+  await menu(C.id, "row-select");
+  await tap(E.id);
+  await js(`window.confirm = () => true; document.querySelector("#pick-delete").click(); true`);
+  check("Delete deletes every ticked chat, and only those", await until(`!document.querySelector('${rowOf(C.id)}') && !document.querySelector('${rowOf(E.id)}')`, 6000) && !(await one(C.id)) && !(await one(E.id)) && !!(await one(A.id)));
+  C = E = null;
+  await menu(A.id, "row-select");
+  await js(`document.querySelector("#pick-done").click(); true`);
+  check("Done stops selecting without doing anything", await js(`document.querySelector("#pick-bar").hidden && document.querySelector("#nav-title").textContent === "Chats"`) && (await one(A.id))?.archived === false);
 
   await js(`go("chat/home/${A.id}"); true`);
   await sleep(800);
@@ -249,7 +285,7 @@ try {
 } catch (e) {
   check("test run finished without crashing", false, e.stack);
 } finally {
-  for (const x of [A, B]) if (x?.id) await req("DELETE", `/api/chats/${x.id}`).catch(() => {});
+  for (const x of [A, B, C, E]) if (x?.id) await req("DELETE", `/api/chats/${x.id}`).catch(() => {});
   await sleep(400);
   server?.kill();
   chrome?.kill();
