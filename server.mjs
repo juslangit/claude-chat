@@ -513,7 +513,9 @@ const WSL_PATH = [process.env.PATH, ...WINDOWS_DIRS].filter(Boolean).join(":");
 // Claude can't know it's being read on a phone unless it's told, and then it can send things back.
 const PHONE_NOTE = "This session is mirrored to an iPhone by claude-chat, so your replies are read there. " +
   "To show a file on that phone — a render, a screenshot, a diagram, a document — run: cchat send <path> [caption]. " +
-  "Writing a file's full path in your reply also makes it appear there, so mention where you saved things.";
+  "Writing a file's full path in your reply also makes it appear there, so mention where you saved things. " +
+  "Claude Code's built-in memory is switched off in these chats: save anything worth remembering to Sky AI Brain " +
+  "(Supabase) with `mem remember`, as ~/.claude/CLAUDE.md describes.";
 
 async function startClaude(c, { resume = false } = {}) {
   const args = [CLAUDE, resume ? "--resume" : "--session-id", c.sessionId, "-n", c.name,
@@ -521,8 +523,10 @@ async function startClaude(c, { resume = false } = {}) {
   // A chat keeps the account it was started with; a resumed one goes back on the same account.
   if (!resume) { c.account = currentAccount; save(); }
   const token = accounts.tokenFor(ENV_FILE, c.account);
+  // Luqman's knowledge lives in one place, Sky AI Brain on Supabase — not in Claude Code's own memory files.
   await tmux("new-session", "-d", "-s", c.tmux, "-c", c.cwd || WORKDIR, "-x", "140", "-y", "45",
     "-e", `CLAUDE_CHAT_ID=${c.id}`, "-e", `CLAUDE_CHAT_PORT=${PORT}`, "-e", `CLAUDE_CHAT_DATA=${DATA}`,
+    "-e", "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1",
     ...(token ? ["-e", `CLAUDE_CODE_OAUTH_TOKEN=${token}`] : []),
     ...(IS_WSL ? ["-e", `PATH=${WSL_PATH}`] : []), args.map(shq).join(" "));
   const r = rt(c.id);
