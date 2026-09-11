@@ -20,6 +20,7 @@ import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { notesFromScreen, noteKey } from "./notes.mjs";
 import * as push from "./push.mjs";
+import * as accounts from "./accounts.mjs";
 
 const run = promisify(execFile);
 const ROOT = path.dirname(fileURLToPath(import.meta.url)); // decoded, so folder names with spaces work ("TODAK ACADEMY")
@@ -39,6 +40,7 @@ const HOOKS_FILE = path.join(DATA, "hooks.json");
 const TERM_DIR = path.join(DATA, "terminal");
 const PHOTO_DIR = path.join(DATA, "photos");  // photos sent from the phone, one folder per chat
 const PUSH_FILE = path.join(DATA, "push.json"); // the phone's push addresses
+const ACCOUNTS_FILE = path.join(DATA, "accounts.json"); // only which Claude account this computer uses
 // The notification signing key is kept with your other keys, which Syncthing shares (push.mjs).
 const ENV_FILE = process.env.CLAUDE_CHAT_ENV_FILE || path.join(HOME, ".claude/.env");
 // How much Claude can hold in mind at once. Every current model is 200k tokens; a long chat creeping
@@ -122,6 +124,103 @@ const saveNow = () => saveTimer && writeChats();
 process.on("exit", saveNow);
 for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"]) process.on(signal, () => { saveNow(); process.exit(0); });
 
+// ── which Claude account new chats run as ──────────────────────────────────────────────────
+
+// The accounts themselves live in ~/.claude/.env (accounts.mjs); all this computer keeps is which
+// one it starts new chats with. An account whose token has since been taken out of .env falls back
+// to the signed-in one rather than starting chats that can't authenticate.
+let currentAccount = "signed-in";
+try { currentAccount = JSON.parse(fs.readFileSync(ACCOUNTS_FILE, "utf8")).current || currentAccount; } catch {}
+// Every chat's summary names its account, so the answer is kept for a few seconds rather than
+// re-reading two files each time the list is sent to the phone.
+let knownAccounts = { at: 0, list: [] };
+function allAccounts() {
+  if (Date.now() - knownAccounts.at > 5000) knownAccounts = { at: Date.now(), list: accounts.allAccounts(ENV_FILE, HOME) };
+  return knownAccounts.list;
+}
+function accountList() {
+  const list = allAccounts();
+  if (!list.some((a) => a.id === currentAccount)) currentAccount = list[0]?.id || "signed-in";
+  return { accounts: list, current: currentAccount };
+}
+function useAccount(id) {
+  knownAccounts.at = 0;
+  if (!allAccounts().some((a) => a.id === id)) throw fail("That account isn't set up on this computer.");
+  currentAccount = id;
+  try { fs.writeFileSync(ACCOUNTS_FILE, JSON.stringify({ current: id }, null, 2)); }
+  catch (e) { console.error("couldn't save the chosen account:", e.message); }
+  return accountList();
+}
+const accountLabel = (id) => allAccounts().find((a) => a.id === id)?.label || null;
+
+// Adding an account means running `claude setup-token` on this computer: it prints a claude.com link,
+// waits for the code that link gives back, and answers with a token that lasts a year. All three
+// steps are driven from the phone — the link is tapped there, the code is pasted there — so the only
+// thing that has to happen at a computer is nothing at all.
+const LOGIN_SESSION = "cc-account-login";
+let adding = null; // { label, plan, startedAt, url, state, error, account }
+
+const loginRunning = async () => !!(await tmux("has-session", "-t", LOGIN_SESSION).then(() => true).catch(() => false));
+const loginScreen = () => tmux("capture-pane", "-p", "-J", "-t", LOGIN_SESSION).catch(() => "");
+
+async function stopAdding() {
+  await tmux("kill-session", "-t", LOGIN_SESSION).catch(() => {});
+  adding = null;
+}
+
+async function startAdding({ label, plan }) {
+  if (adding?.state === "waiting" || adding?.state === "starting") throw fail("You're already adding an account.");
+  label = String(label || "").trim().slice(0, 40);
+  if (!label) throw fail("Give the account a name, so you can tell the two apart.");
+  await tmux("kill-session", "-t", LOGIN_SESSION).catch(() => {});
+  adding = { label, plan: plan || null, startedAt: Date.now(), url: null, state: "starting", error: null, account: null };
+  await tmux("new-session", "-d", "-s", LOGIN_SESSION, "-c", HOME, "-x", "120", "-y", "40",
+    ...(IS_WSL ? ["-e", `PATH=${WSL_PATH}`] : []), `${shq(CLAUDE)} setup-token`);
+  return addingState();
+}
+
+// Reads the sign-in screen: the link while it's waiting, the token once it's there.
+async function addingState() {
+  if (!adding) return { adding: false };
+  if (adding.state === "starting" || adding.state === "waiting") {
+    const screen = await loginScreen();
+    adding.url ||= screen.match(/https:\/\/claude\.com\/\S+/)?.[0] || null;
+    const token = screen.match(/sk-ant-oat[\w-]+/)?.[0];
+    if (token) {
+      adding.state = "saving";
+      try {
+        // The token may not be allowed to read the profile, in which case what was typed on the
+        // phone stands. When it is allowed, the real name, email and plan win.
+        const real = await accounts.fetchProfile(token);
+        const id = accounts.addAccount(ENV_FILE, {
+          label: adding.label, plan: real?.plan || adding.plan, email: real?.email || null, token,
+        });
+        knownAccounts.at = 0;
+        adding.account = allAccounts().find((a) => a.id === id) || null;
+        adding.state = "added";
+        useAccount(id); // switching is the whole point of adding one
+      } catch (e) {
+        adding.state = "failed";
+        adding.error = e.message;
+      }
+      await tmux("kill-session", "-t", LOGIN_SESSION).catch(() => {});
+    } else if (adding.url) adding.state = "waiting";
+    else if (!(await loginRunning())) { adding.state = "failed"; adding.error = "Claude stopped before it gave a link. Is it installed on this computer?"; }
+    else if (Date.now() - adding.startedAt > 15 * 60 * 1000) { adding.state = "failed"; adding.error = "Nothing came back for fifteen minutes."; await stopAdding(); }
+  }
+  return { adding: true, label: adding.label, state: adding.state, url: adding.url, error: adding.error, account: adding.account };
+}
+
+// The code claude.com hands back after signing in, typed into the waiting prompt.
+async function sendLoginCode(code) {
+  code = String(code || "").trim();
+  if (!/^[\w#.=/+-]{4,400}$/.test(code)) throw fail("That doesn't look like the code from the sign-in page.");
+  if (!(await loginRunning())) throw fail("The sign-in isn't running any more. Start it again.");
+  await tmux("send-keys", "-t", LOGIN_SESSION, "-l", code);
+  await tmux("send-keys", "-t", LOGIN_SESSION, "Enter");
+  return addingState();
+}
+
 // Only in memory: what is happening in each chat right now.
 const runtime = {};
 const rt = (id) => (runtime[id] ||= { messages: [], offset: 0, count: 0, status: "idle", alive: false, pending: null, lastText: "", lastAt: 0 });
@@ -135,6 +234,7 @@ function summary(c) {
     lastText: r.lastText, lastAt: r.lastAt || c.createdAt, count: r.count,
     note: r.status === "working" || r.status === "approval" ? r.note || null : null, // Claude's latest progress note
     context: { used: r.tokens || 0, limit: CONTEXT_LIMIT }, // how full Claude's memory is in this chat
+    account: c.account ? accountLabel(c.account) : null, // the Claude account it was started on
     pending: r.pending && { reqId: r.pending.reqId, tool: r.pending.tool, detail: r.pending.detail, why: r.pending.why, questions: r.pending.questions },
   };
 }
@@ -418,8 +518,12 @@ const PHONE_NOTE = "This session is mirrored to an iPhone by claude-chat, so you
 async function startClaude(c, { resume = false } = {}) {
   const args = [CLAUDE, resume ? "--resume" : "--session-id", c.sessionId, "-n", c.name,
     "--permission-mode", "bypassPermissions", "--settings", HOOKS_FILE, "--append-system-prompt", PHONE_NOTE];
+  // A chat keeps the account it was started with; a resumed one goes back on the same account.
+  if (!resume) { c.account = currentAccount; save(); }
+  const token = accounts.tokenFor(ENV_FILE, c.account);
   await tmux("new-session", "-d", "-s", c.tmux, "-c", c.cwd || WORKDIR, "-x", "140", "-y", "45",
     "-e", `CLAUDE_CHAT_ID=${c.id}`, "-e", `CLAUDE_CHAT_PORT=${PORT}`, "-e", `CLAUDE_CHAT_DATA=${DATA}`,
+    ...(token ? ["-e", `CLAUDE_CODE_OAUTH_TOKEN=${token}`] : []),
     ...(IS_WSL ? ["-e", `PATH=${WSL_PATH}`] : []), args.map(shq).join(" "));
   const r = rt(c.id);
   r.alive = true;
@@ -849,6 +953,22 @@ async function api(req, res, url) {
     lookingUntil = (await body(req)).looking ? Date.now() + 45000 : 0;
     return json(res, { ok: true });
   }
+  // The Claude account new chats run as, and adding a second one without leaving the phone.
+  // Asked straight out of ~/.claude/.env, not the few-second cache — Syncthing may have just brought
+  // an account over from the other computer.
+  if (url.pathname === "/api/accounts" && req.method === "GET") { knownAccounts.at = 0; return json(res, { ...accountList(), ...(await addingState()) }); }
+  if (url.pathname === "/api/accounts/use" && req.method === "POST") return json(res, useAccount((await body(req)).id));
+  if (url.pathname === "/api/accounts/add" && req.method === "POST") return json(res, await startAdding(await body(req)));
+  if (url.pathname === "/api/accounts/code" && req.method === "POST") return json(res, await sendLoginCode((await body(req)).code));
+  if (url.pathname === "/api/accounts/cancel" && req.method === "POST") { await stopAdding(); return json(res, { ok: true }); }
+  if (url.pathname === "/api/accounts/remove" && req.method === "POST") {
+    const { id } = await body(req);
+    if (id === "signed-in") throw fail("The account this computer is signed in to can't be removed from here.");
+    accounts.removeAccount(ENV_FILE, id);
+    knownAccounts.at = 0;
+    return json(res, accountList());
+  }
+
   if (url.pathname === "/api/push/key") return json(res, { key: push.makeVapidKeys(ENV_FILE).publicKey });
   if (url.pathname === "/api/push/subscribe" && req.method === "POST") {
     const s = await body(req);

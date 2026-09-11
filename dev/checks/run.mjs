@@ -15,6 +15,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SUITES = [
   { name: "commands", about: "Claude Code's own commands, run from the phone", minutes: 3, claude: true },
   { name: "archive", about: "archiving, deleting, and staying quiet", minutes: 3, claude: false },
+  { name: "accounts", about: "which Claude account a chat runs as", minutes: 2, claude: false },
   { name: "files", about: "files coming back from Claude to the phone", minutes: 3, claude: true },
   { name: "context", about: "how full Claude's memory is, and compacting", minutes: 3, claude: true },
   { name: "features", about: "photos, pins, search, replies, notifications", minutes: 6, claude: true },
