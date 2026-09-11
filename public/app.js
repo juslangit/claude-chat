@@ -19,6 +19,7 @@ const state = {
   computers: [],                 // every computer running claude-chat that this phone can reach
   pinned: read("pinned", []),    // keys of pinned chats, newest pin first
   archivedView: false,           // true while the list is showing what you've archived
+  picking: null,                 // while you're selecting chats: the Set of keys ticked so far
 };
 // Chats from every computer share one list. A chat's key is "<computer>/<chat id>"; "home" is the
 // computer this page came from.
@@ -76,6 +77,7 @@ const ICON = {
   mic: `<svg class="voice" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>`,
   phone: `<svg class="voice" viewBox="0 0 24 24" fill="currentColor"><path d="M5 3.5h3.2l1.6 4-2.1 1.5a11 11 0 0 0 7.3 7.3l1.5-2.1 4 1.6V19a1.8 1.8 0 0 1-1.9 1.8C10.3 20.3 3.7 13.7 3.2 5.4A1.8 1.8 0 0 1 5 3.5z"/></svg>`,
   pin: `<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M14.5 2.5l7 7-2.3.9-3.6 3.6.6 4.6-1.6 1.6-4.2-4.2L5 21.4 3.6 20l5.4-5.4-4.2-4.2 1.6-1.6 4.6.6 3.6-3.6z"/></svg>`,
+  check: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>`,
   command: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M14.5 4.5 9.5 19.5"/><path d="M6 8.5 2.5 12 6 15.5M18 8.5 21.5 12 18 15.5"/></svg>`,
   archive: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4.5" rx="1.2"/><path d="M4.8 8.5h14.4V19a1.2 1.2 0 0 1-1.2 1.2H6a1.2 1.2 0 0 1-1.2-1.2z"/><path d="M10 12.5h4"/></svg>`,
   back: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12H4M10 6l-6 6 6 6"/></svg>`,
@@ -161,7 +163,7 @@ function setOnline(on) {
   state.online = on;
   const title = $("#nav-title");
   title.classList.toggle("offline", !on);
-  title.innerHTML = on ? (state.archivedView ? "Archived" : "Chats") : `<span class="spin"></span>Connecting…`;
+  title.innerHTML = on ? listTitle() : `<span class="spin"></span>Connecting…`;
   renderChatChrome();
 }
 // iPhones pause pages in the background; catch up when you come back.
@@ -372,7 +374,18 @@ function renderList() {
   row.innerHTML = state.archivedView
     ? `${ICON.back}<span class="arch-text">All chats</span>`
     : `${ICON.archive}<span class="arch-text">Archived</span><span class="arch-count">${archived}</span>`;
-  if (state.online) $("#nav-title").textContent = state.archivedView ? "Archived" : "Chats";
+  if (state.online) $("#nav-title").textContent = listTitle();
+
+  // Selecting chats: ticks in front of every row, Done instead of +, and Archive / Delete instead of the tabs.
+  const p = state.picking;
+  if (p) for (const k of p) if (!state.chats.has(k)) p.delete(k); // deleted from somewhere else meanwhile
+  $("#chat-list").classList.toggle("picking", !!p);
+  $("#pick-done").hidden = !p;
+  $("#new-chat").hidden = !!p;
+  $("#pick-bar").hidden = !p;
+  $("#tabs").hidden = !!p || !!state.current;
+  $("#pick-archive").textContent = state.archivedView ? "Unarchive" : "Archive";
+  $("#pick-archive").disabled = $("#pick-delete").disabled = !p?.size;
 
   $("#chat-list").innerHTML = shown.length
     ? shown.map(rowHtml).join("")
@@ -389,7 +402,14 @@ function renderList() {
   renderHome();
 }
 
+function listTitle() {
+  const n = state.picking?.size;
+  if (state.picking) return n ? `${n} selected` : "Select chats";
+  return state.archivedView ? "Archived" : "Chats";
+}
+
 $("#archived-row").onclick = () => {
+  state.picking = null;
   state.archivedView = !state.archivedView;
   renderList();
   $("#list-scroll").scrollTop = 0;
@@ -476,7 +496,7 @@ function rowHtml(c) {
     if (c.status === "ended") preview = `Stopped · ${preview}`;
   }
   preview = whereLabel(c) + preview;
-  return `<button class="row${unread ? " unread" : ""}" data-id="${c.key}" data-swipe="${isPinned(c) ? "Unpin" : "Pin"}" data-swipe-left="${isArchived(c) ? "Unarchive" : "Archive"}">${avatar(c)}
+  return `<button class="row${unread ? " unread" : ""}${state.picking?.has(c.key) ? " picked" : ""}" data-id="${c.key}"><span class="tick-box">${ICON.check}</span>${avatar(c)}
     <div class="meta">
       <div class="top"><span class="name">${esc(c.name)}</span><span class="time">${when(c.lastAt)}</span></div>
       <div class="bottom"><span class="ptext">${preview}</span>${badge}${isPinned(c) ? `<span class="pin">${ICON.pin}</span>` : ""}</div>
@@ -485,7 +505,9 @@ function rowHtml(c) {
 
 $("#chat-list").addEventListener("click", (e) => {
   const row = e.target.closest(".row");
-  if (row && Date.now() - swipedAt > 400) location.hash = `chat/${row.dataset.id}`; // not the end of a swipe
+  if (!row) return;
+  if (state.picking) return togglePicked(row.dataset.id); // selecting: a tap ticks it instead of opening it
+  location.hash = `chat/${row.dataset.id}`;
 });
 $("#chips").addEventListener("click", (e) => {
   const f = e.target.closest(".chip")?.dataset.filter;
@@ -510,6 +532,7 @@ function route() {
   setReply(null);
   closeFind();
   closeSheets();
+  state.picking = null; // going anywhere else ends selecting
   const m = location.hash.match(/^#chat\/(?:([\w-]+)\/)?([\w-]+)/); // #chat/<computer>/<chat>, or an old #chat/<chat>
   const id = m ? `${m[1] || "home"}/${m[2]}` : null;
   const tab = id ? null : TABS.find((t) => location.hash === `#${t}`) || "home";
@@ -1079,12 +1102,13 @@ $("#open-mac").onclick = async () => {
   try { await chatApi(cur(), "/terminal", { body: {} }); toast(`Opened in a Terminal window on ${compOf(cur()).name || "the computer"}.`); }
   catch (e) { toast(e.message); }
 };
-$("#rename").onclick = async () => {
-  closeSheets();
-  const c = state.chats.get(state.current);
-  const name = prompt("Chat name", c?.name || "");
+// Used by Chat info and by holding a chat in the list.
+async function renameChat(c) {
+  if (!c) return;
+  const name = prompt("Chat name", c.name || "");
   if (name?.trim()) await chatApi(c, "", { method: "PATCH", body: { name } }).catch((e) => toast(e.message));
-};
+}
+$("#rename").onclick = () => { closeSheets(); renameChat(state.chats.get(state.current)); };
 // Asks first. Used by Chat info and by holding a chat in the list.
 async function deleteChat(c) {
   if (!c || !confirm("Delete this chat?\n\nClaude stops, and the conversation and any photos in it go for good. Whatever Claude built stays in your project folder.\n\nTo keep it but hide it, use Archive instead.")) return false;
@@ -1464,9 +1488,10 @@ $("#call-skip").onclick = () => { // stop Claude talking and go straight to your
 $("#call-approve").onclick = () => answer("allow");
 $("#call-deny").onclick = () => answer("deny");
 
-// ── swipe, like WhatsApp: a chat to pin it, a message to reply to it ────────
+// ── swipe a message to reply to it, like WhatsApp ────────────────────────────
+// (Chats in the list aren't swiped any more — you hold one for its menu.)
 
-// Swipe a row or a bubble to the right and it follows your finger a little way; let go past the mark
+// Swipe a bubble to the right and it follows your finger a little way; let go past the mark
 // and it does its job. Up-and-down still scrolls (the styles give these touch-action: pan-y).
 let swipedAt = 0; // the browser ends a swipe with a tap; a tap straight after one is ignored
 function swipeable(box, selector, onRight, onLeft) {
@@ -1522,8 +1547,8 @@ function setReply(r) {
 $("#reply-cancel").onclick = () => setReply(null);
 swipeable($("#messages"), ".bubble.in:not(.tools):not(.command), .bubble.out", (b) => b.dataset.quote && setReply({ who: b.dataset.who, text: b.dataset.quote }));
 
-// Pinned chats stay at the top of the list. Swipe a chat to the right to pin or unpin it, or use Chat
-// info. The pins are kept on this phone.
+// Pinned chats stay at the top of the list. Hold a chat to pin or unpin it, or use Chat info. The pins
+// are kept on this phone.
 const isPinned = (c) => state.pinned.includes(c.key);
 function togglePin(key) {
   const on = !state.pinned.includes(key);
@@ -1533,11 +1558,10 @@ function togglePin(key) {
   if (cur()) fillInfo(cur());
   toast(on ? "Pinned to the top" : "Unpinned");
 }
-swipeable($("#chat-list"), ".row", (row) => togglePin(row.dataset.id), (row) => toggleArchive(row.dataset.id));
 $("#pin-chat").onclick = () => state.current && togglePin(state.current);
 
 // Archived chats are put away on the computer itself, so they stay put on any phone — and that computer
-// stops sending notifications for them. Swipe a chat left, or use Chat info.
+// stops sending notifications for them. Hold a chat, or use Chat info.
 const isArchived = (c) => !!c.archived;
 async function toggleArchive(key) {
   const c = state.chats.get(key);
@@ -1576,6 +1600,7 @@ addEventListener("pointercancel", () => { held = false; }, true);
 
 let menuKey = null;
 holdable($("#chat-list"), ".row", (row) => {
+  if (state.picking) return togglePicked(row.dataset.id); // already selecting: a hold ticks it like a tap
   const c = state.chats.get(row.dataset.id);
   if (!c) return;
   menuKey = c.key;
@@ -1587,6 +1612,36 @@ holdable($("#chat-list"), ".row", (row) => {
 $("#row-pin").onclick = () => { closeSheets(); togglePin(menuKey); };
 $("#row-archive").onclick = () => { closeSheets(); toggleArchive(menuKey); };
 $("#row-delete").onclick = () => { closeSheets(); deleteChat(state.chats.get(menuKey)); };
+$("#row-rename").onclick = () => { closeSheets(); renameChat(state.chats.get(menuKey)); };
+$("#row-select").onclick = () => { closeSheets(); state.picking = new Set([menuKey]); renderList(); };
+
+// ── selecting several chats: tick them, then Archive or Delete them all at once ──
+function togglePicked(key) {
+  const p = state.picking;
+  if (p.has(key)) p.delete(key); else p.add(key);
+  renderList();
+}
+const stopPicking = () => { state.picking = null; renderList(); };
+$("#pick-done").onclick = stopPicking;
+const pickedChats = () => [...(state.picking || [])].map((k) => state.chats.get(k)).filter(Boolean);
+const plural = (n) => `${n} chat${n === 1 ? "" : "s"}`;
+// Runs one request per chat, and says how many went through.
+async function forEachPicked(chats, request, did) {
+  const results = await Promise.allSettled(chats.map(request));
+  const ok = results.filter((r) => r.status === "fulfilled").length;
+  toast(`${did} ${plural(ok)}` + (ok < chats.length ? ` — ${chats.length - ok} didn't go through` : ""));
+}
+$("#pick-archive").onclick = () => {
+  const chats = pickedChats(), archived = !state.archivedView;
+  stopPicking();
+  forEachPicked(chats, (c) => chatApi(c, "", { method: "PATCH", body: { archived } }), archived ? "Archived" : "Unarchived");
+};
+$("#pick-delete").onclick = () => {
+  const chats = pickedChats();
+  if (!chats.length || !confirm(`Delete ${plural(chats.length)}?\n\nClaude stops in each, and their conversations and any photos in them go for good. Whatever Claude built stays in your project folders.\n\nTo keep them but hide them, use Archive instead.`)) return;
+  stopPicking();
+  forEachPicked(chats, (c) => chatApi(c, "", { method: "DELETE" }), "Deleted");
+};
 
 // Pinching doesn't zoom the app either (the viewport tag covers most of it; Safari needs this too).
 document.addEventListener("gesturestart", (e) => e.preventDefault());

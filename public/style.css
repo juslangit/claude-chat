@@ -105,8 +105,8 @@ svg { display: block; flex: none; }
 /* ── a screen ── */
 .view { position: fixed; top: 0; left: 0; right: 0; height: var(--app-h); z-index: 1; display: flex; flex-direction: column; }
 .view::before { content: ""; position: absolute; inset: 0; z-index: -1; background: var(--wash); }
-/* overflow-x: hidden — the swipe labels sit just outside each row, and without it the whole list could
-   be dragged sideways. */
+/* overflow-x: hidden — nothing here scrolls sideways; anything a little too wide is clipped instead of
+   letting the whole list be dragged left and right. */
 .page {
   flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch;
   /* just enough to clear the floating bar (about 73px tall, 12px off the bottom) */
@@ -132,6 +132,7 @@ svg { display: block; flex: none; }
   background: var(--panel); border: 1px solid var(--line); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
 }
 .glass-btn:active, .round-btn:active { background: var(--panel-2); }
+.glass-btn.pill { width: auto; padding: 0 16px; border-radius: 20px; font-size: .95rem; font-weight: 600; } /* Done, while selecting */
 
 /* ── Home ── */
 .hello { display: flex; align-items: center; gap: 10px; padding: 4px 0 18px; }
@@ -217,21 +218,16 @@ svg { display: block; flex: none; }
 .row.holding { transform: scale(.97); transition: transform .45s; } /* sinks a little while you hold it */
 #row-menu-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60vw; }
 .row.unread { border-color: rgba(255, 152, 16, .5); }
-.row::before {
-  content: attr(data-swipe); position: absolute; left: -76px; top: 50%; width: 64px; height: 30px; margin-top: -15px;
-  display: grid; place-items: center; border-radius: 15px; background: var(--panel); color: var(--muted); font-size: .8rem; font-weight: 600;
-  opacity: 0; transition: opacity .12s; /* only while you're swiping the row */
+/* selecting chats: a circle in front of each one, filled and ticked once it's picked */
+.tick-box {
+  display: none; flex: none; width: 24px; height: 24px; border-radius: 50%; place-items: center;
+  border: 2px solid var(--faint); color: var(--accent-ink);
 }
-.row.swiping::before { opacity: 1; }
-.row.swipe-ready::before { background: var(--accent); color: var(--accent-ink); }
-/* the same on the other side: swipe left to archive */
-.row::after {
-  content: attr(data-swipe-left); position: absolute; right: -76px; top: 50%; width: 64px; height: 30px; margin-top: -15px;
-  display: grid; place-items: center; border-radius: 15px; background: var(--panel); color: var(--muted); font-size: .8rem; font-weight: 600;
-  opacity: 0; transition: opacity .12s;
-}
-.row.swiping-left::after { opacity: 1; }
-.row.swipe-ready-left::after { background: var(--accent); color: var(--accent-ink); }
+#chat-list.picking .tick-box { display: grid; }
+.tick-box svg { opacity: 0; }
+.row.picked { border-color: var(--accent); }
+.row.picked .tick-box { background: var(--accent); border-color: var(--accent); }
+.row.picked .tick-box svg { opacity: 1; }
 
 /* the row that holds everything you've archived */
 .archived-row {
@@ -295,6 +291,10 @@ svg { display: block; flex: none; }
 .tab-icon { width: 38px; height: 30px; display: grid; place-items: center; border-radius: 12px; }
 .tab.on { color: var(--accent-text); }
 .tab.on .tab-icon { background: var(--accent); color: var(--accent-ink); }
+/* while you're selecting chats, the same floating bar holds what to do with them */
+.pick-bar { gap: 8px; }
+.pick-btn { padding: 12px 26px; border-radius: 22px; background: var(--panel-2); font-size: .95rem; font-weight: 600; }
+.pick-btn.danger { color: var(--danger); }
 
 /* ── inside a chat ── */
 .chat-nav { grid-template-columns: auto 1fr auto auto auto; gap: 6px; padding-bottom: 8px; }
@@ -619,3 +619,4 @@ a.btn { display: grid; place-items: center; text-decoration: none; }
 }
 /* While a sheet is up (the screen's keys, say), the toast sits higher so it doesn't cover the buttons. */
 body:has(.sheet:not([hidden])) .toast { bottom: calc(100% - var(--app-h) + env(safe-area-inset-bottom) + 34dvh); }
+body:has(#row-menu:not([hidden])) .toast { display: none; } /* the hold menu is taller; a note would sit on its title */
