@@ -6,3 +6,4 @@ data/
 .DS_Store
 dev/shots/
 dev/ref/
+dev/checks/.work/

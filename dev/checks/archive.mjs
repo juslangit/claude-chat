@@ -1,0 +1,216 @@
+// End-to-end checks for archive and delete, against a test copy on :4479 (own data folder, own tmux
+// server, own .env). A fake Apple push service on :4481 proves an archived chat really does stay quiet.
+import { spawn, execFileSync } from "node:child_process";
+import fs from "node:fs";
+import http from "node:http";
+import crypto from "node:crypto";
+
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+// Where the app being checked lives, and a scratch folder for its data, profiles and screenshots.
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const APP = process.env.CLAUDE_CHAT_APP || path.resolve(HERE, "../..");
+const WORK = process.env.CLAUDE_CHAT_WORK || path.join(HERE, ".work");
+fs.mkdirSync(WORK, { recursive: true });
+
+const W = APP;
+const D = `${WORK}/t-archive`;
+const SHOTS = `${WORK}/shots-archive`;
+const PORT = 4479, RECV = 4481, CDP = 9339;
+const TMUX = "/opt/homebrew/bin/tmux";
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const results = [];
+const check = (name, ok, extra = "") => { results.push(!!ok); console.log(`${ok ? "PASS" : "FAIL"}  ${name}${extra ? `  — ${extra}` : ""}`); };
+fs.mkdirSync(D, { recursive: true });
+fs.mkdirSync(SHOTS, { recursive: true });
+
+let server;
+function startServer() {
+  const out = fs.openSync(`${D}/server.log`, "a");
+  server = spawn(process.execPath, ["server.mjs"], {
+    cwd: W, stdio: ["ignore", out, out],
+    env: { ...process.env, CLAUDE_CHAT_COMPUTER: "Test (4479)", CLAUDE_CHAT_DATA: D, CLAUDE_CHAT_SOCKET: "claude-chat-arch",
+      PORT: String(PORT), ANTHROPIC_MODEL: "claude-haiku-4-5", CLAUDE_CHAT_ENV_FILE: `${D}/env` },
+  });
+}
+function req(method, p, { headers = {}, body } = {}) {
+  return new Promise((resolve, reject) => {
+    const data = body ? JSON.stringify(body) : null;
+    const r = http.request({ host: "127.0.0.1", port: PORT, path: p, method,
+      headers: { ...(data && { "content-type": "application/json", "content-length": Buffer.byteLength(data) }), ...headers } }, (res) => {
+      let t = "";
+      res.on("data", (c) => (t += c));
+      res.on("end", () => { let j; try { j = JSON.parse(t); } catch {} resolve({ status: res.statusCode, json: j }); });
+    });
+    r.on("error", reject);
+    r.setTimeout(120000, () => r.destroy(new Error("timeout")));
+    if (data) r.write(data);
+    r.end();
+  });
+}
+const waitUp = async () => { for (let i = 0; i < 80; i++) { try { await req("GET", "/api/whoami"); return true; } catch {} await sleep(250); } return false; };
+
+// a fake phone and a fake Apple, so "archived means no notification" can be proved
+const phone = crypto.createECDH("prime256v1");
+const phonePub = phone.generateKeys();
+const auth = crypto.randomBytes(16);
+const b64u = (b) => Buffer.from(b).toString("base64url");
+function decrypt(body) {
+  const salt = body.subarray(0, 16), idlen = body[20], from = body.subarray(21, 21 + idlen), sealed = body.subarray(21 + idlen);
+  const hk = (s, ikm, info, n) => Buffer.from(crypto.hkdfSync("sha256", ikm, s, info, n));
+  const ikm = hk(auth, phone.computeSecret(from), Buffer.concat([Buffer.from("WebPush: info\0"), phonePub, from]), 32);
+  const d = crypto.createDecipheriv("aes-128-gcm", hk(salt, ikm, Buffer.from("Content-Encoding: aes128gcm\0"), 16), hk(salt, ikm, Buffer.from("Content-Encoding: nonce\0"), 12));
+  d.setAuthTag(sealed.subarray(-16));
+  const pt = Buffer.concat([d.update(sealed.subarray(0, -16)), d.final()]);
+  let i = pt.length - 1;
+  while (pt[i] === 0) i--;
+  return JSON.parse(pt.subarray(0, i).toString());
+}
+const pushes = [];
+const apple = http.createServer((q, s) => {
+  const chunks = [];
+  q.on("data", (c) => chunks.push(c));
+  q.on("end", () => { try { pushes.push(decrypt(Buffer.concat(chunks))); } catch {} s.writeHead(201); s.end(); });
+}).listen(RECV, "127.0.0.1");
+const waitPush = async (n, ms) => { const end = Date.now() + ms; while (Date.now() < end && pushes.length < n) await sleep(200); return pushes.length >= n; };
+
+let chrome, A, B;
+try {
+  startServer();
+  check("server starts", await waitUp());
+  await req("GET", "/api/push/key");
+  await req("POST", "/api/push/subscribe", { body: { endpoint: `http://127.0.0.1:${RECV}/phone`, keys: { p256dh: b64u(phonePub), auth: b64u(auth) } } });
+  await req("POST", "/api/presence", { body: { looking: false } });
+
+  A = (await req("POST", "/api/chats", { body: { name: "keeper", terminal: false } })).json;
+  B = (await req("POST", "/api/chats", { body: { name: "old one", terminal: false } })).json;
+  const list = async () => (await req("GET", "/api/chats")).json || [];
+  const one = async (id) => (await list()).find((c) => c.id === id);
+  const waitFor = async (id, want, ms) => { const end = Date.now() + ms; let s; while (Date.now() < end) { s = (await one(id))?.status; if (want(s)) return s; await sleep(400); } return s; };
+  check("both chats reach online", (await waitFor(A.id, (s) => s === "idle", 60000)) === "idle" && (await waitFor(B.id, (s) => s === "idle", 60000)) === "idle");
+
+  // ── archiving ──
+  const archived = (await req("PATCH", `/api/chats/${A.id}`, { body: { archived: true } })).json;
+  check("a chat can be archived", archived?.archived === true);
+  check("…and it says so in the list", (await one(A.id))?.archived === true);
+  check("…while the other one isn't", (await one(B.id))?.archived === false);
+
+  const secret = fs.readFileSync(`${D}/secret`, "utf8").trim();
+  const ask = async (id) => {
+    const hook = req("POST", "/hook", { headers: { "x-secret": secret }, body: { chatId: id, event: { hook_event_name: "PermissionRequest", tool_name: "Bash", tool_input: { command: "echo hi" } } } });
+    await sleep(1200);
+    const reqId = (await one(id))?.pending?.reqId;
+    await req("POST", `/api/chats/${id}/approve`, { body: { decision: "deny", reqId } });
+    await hook;
+  };
+  const before = pushes.length;
+  await ask(A.id);
+  await sleep(2500);
+  check("an archived chat sends no notification", pushes.length === before, `${pushes.length - before} arrived`);
+
+  await req("PATCH", `/api/chats/${A.id}`, { body: { archived: false } });
+  check("unarchiving puts it back", (await one(A.id))?.archived === false);
+  await ask(A.id);
+  check("…and it notifies again", await waitPush(before + 1, 6000) && /echo hi/.test(pushes[before]?.body || ""), pushes[before]?.body);
+
+  const renamed = (await req("PATCH", `/api/chats/${A.id}`, { body: { name: "keeper renamed" } })).json;
+  check("renaming still works and doesn't archive anything", renamed?.name === "keeper renamed" && renamed.archived === false);
+
+  // ── deleting the stopped ones ──
+  execFileSync(TMUX, ["-L", "claude-chat-arch", "kill-session", "-t", B.tmux]);
+  check("the second chat shows as stopped", (await waitFor(B.id, (s) => s === "ended", 15000)) === "ended");
+  const swept = (await req("DELETE", "/api/chats/stopped")).json;
+  check("delete stopped removes exactly the stopped one", swept?.deleted === 1, JSON.stringify(swept));
+  const after = await list();
+  check("…and leaves the running chat alone", after.length === 1 && after[0].id === A.id, after.map((c) => c.name).join(", "));
+  B = null;
+
+  // ── the phone ──
+  chrome = spawn("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", [
+    "--headless=new", `--remote-debugging-port=${CDP}`, `--user-data-dir=${WORK}/.chrome-e2e4-${Date.now()}`,
+    "--no-first-run", "--no-default-browser-check", "--hide-scrollbars", "about:blank"], { stdio: "ignore" });
+  let ver;
+  for (let i = 0; i < 60 && !ver; i++) { await sleep(250); ver = await fetch(`http://127.0.0.1:${CDP}/json/version`).then((r) => r.json()).catch(() => null); }
+  const ws = new WebSocket(ver.webSocketDebuggerUrl);
+  await new Promise((r) => ws.addEventListener("open", r));
+  let seq = 0;
+  const waiting = new Map(), errors = [];
+  ws.addEventListener("message", (e) => {
+    const m = JSON.parse(e.data);
+    if (m.id && waiting.has(m.id)) { const { res, rej } = waiting.get(m.id); waiting.delete(m.id); return m.error ? rej(new Error(JSON.stringify(m.error))) : res(m.result); }
+    if (m.method === "Runtime.exceptionThrown") errors.push(m.params.exceptionDetails.exception?.description || m.params.exceptionDetails.text);
+  });
+  const send = (method, params = {}, sessionId) => new Promise((res, rej) => { const id = ++seq; waiting.set(id, { res, rej }); ws.send(JSON.stringify({ id, method, params, sessionId })); });
+  const { targetId } = await send("Target.createTarget", { url: "about:blank" });
+  const { sessionId } = await send("Target.attachToTarget", { targetId, flatten: true });
+  const S = (m, p) => send(m, p, sessionId);
+  await S("Page.enable");
+  await S("Runtime.enable");
+  await S("Emulation.setDeviceMetricsOverride", { width: 402, height: 874, deviceScaleFactor: 2, mobile: true });
+  const js = async (expression) => {
+    const r = await S("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true });
+    if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description || r.exceptionDetails.text);
+    return r.result.value;
+  };
+  const shot = async (name) => { await sleep(350); const { data } = await S("Page.captureScreenshot", { format: "png" }); fs.writeFileSync(`${SHOTS}/${name}.png`, Buffer.from(data, "base64")); };
+  const until = async (expr, ms) => { const end = Date.now() + ms; while (Date.now() < end) { if (await js(expr).catch(() => false)) return true; await sleep(300); } return false; };
+  const swipeLeft = (selector) => js(`(() => {
+    const el = document.querySelector(${JSON.stringify(selector)});
+    const r = el.getBoundingClientRect(), x = r.right - 20, y = r.top + r.height / 2;
+    const ev = (type, dx) => el.dispatchEvent(new PointerEvent(type, { bubbles: true, clientX: x + dx, clientY: y, pointerId: 9, pointerType: "touch", button: 0, isPrimary: true }));
+    ev("pointerdown", 0); for (const dx of [-15, -30, -50, -70, -85]) ev("pointermove", dx); ev("pointerup", -85);
+    return true;
+  })()`);
+
+  await S("Page.navigate", { url: `http://127.0.0.1:${PORT}/#chats` });
+  check("phone page connects", await until("home.online === true", 10000));
+  check("no Archived row while nothing is archived", await js(`document.querySelector("#archived-row").hidden`));
+
+  await swipeLeft(`#chat-list .row[data-id="home/${A.id}"]`);
+  check("swiping a chat left archives it", await until(`document.querySelectorAll("#chat-list .row").length === 0`, 6000));
+  check("…the Archived row appears with a count", await js(`(() => { const r = document.querySelector("#archived-row"); return !r.hidden && r.textContent.includes("Archived") && r.textContent.includes("1"); })()`));
+  check("…and the computer knows, not just the phone", (await one(A.id))?.archived === true);
+  await shot("1-list-archived");
+
+  await js(`document.querySelector("#archived-row").click(); true`);
+  check("the Archived row opens what's inside", await until(`document.querySelectorAll("#chat-list .row").length === 1 && document.querySelector("#nav-title").textContent === "Archived"`, 4000));
+  await shot("2-archived-view");
+  await swipeLeft(`#chat-list .row[data-id="home/${A.id}"]`);
+  check("swiping left again puts it back", await until(`document.querySelectorAll("#chat-list .row").length === 0`, 6000) && (await one(A.id))?.archived === false);
+  await js(`document.querySelector("#archived-row").click(); true`);
+  check("back in the main list", await until(`document.querySelectorAll("#chat-list .row").length === 1 && document.querySelector("#nav-title").textContent === "Chats"`, 4000));
+
+  await js(`go("chat/home/${A.id}"); true`);
+  await sleep(800);
+  await js(`document.querySelector("#chat-head").click(); true`);
+  await sleep(400);
+  check("Chat info offers Archive and Delete", await js(`document.querySelector("#archive-label").textContent === "Archive chat" && document.querySelector("#end-chat").textContent === "Delete chat"`));
+  await shot("3-chat-info");
+  await js(`document.querySelector("#archive-chat").click(); true`);
+  check("Chat info → Archive archives it", await until(`state.chats.get("home/${A.id}")?.archived === true`, 6000));
+  await js(`document.querySelector("#chat-head").click(); true`);
+  await sleep(400);
+  check("…and the row then says Unarchive", await js(`document.querySelector("#archive-label").textContent === "Unarchive chat"`));
+  await js(`closeSheets(); go("home"); true`);
+  await sleep(700);
+  check("an archived chat stays out of Home", await js(`!document.querySelector("#activity").textContent.includes("keeper")`), await js(`document.querySelector("#activity").textContent.replace(/\\s+/g, " ").slice(0, 60)`));
+  check("…and out of today's count", await js(`document.querySelector("#day-card").textContent.includes("Nothing running")`));
+  await shot("4-home");
+  await js(`go("settings"); true`);
+  await sleep(600);
+  check("Settings has the clear-out, greyed out with nothing stopped", await js(`(() => { const b = document.querySelector("#delete-stopped"); return b.textContent.includes("Delete stopped chats") && b.disabled; })()`));
+  await shot("5-settings");
+  check("no errors in the page", errors.length === 0, errors.join(" | "));
+} catch (e) {
+  check("test run finished without crashing", false, e.stack);
+} finally {
+  for (const x of [A, B]) if (x?.id) await req("DELETE", `/api/chats/${x.id}`).catch(() => {});
+  await sleep(400);
+  server?.kill();
+  chrome?.kill();
+  apple.close();
+  try { execFileSync(TMUX, ["-L", "claude-chat-arch", "kill-server"], { stdio: "ignore" }); } catch {}
+  console.log(`\n${results.filter(Boolean).length}/${results.length} passed`);
+  process.exit(0);
+}
