@@ -126,7 +126,7 @@ const rt = (id) => (runtime[id] ||= { messages: [], offset: 0, count: 0, status:
 function summary(c) {
   const r = rt(c.id);
   return {
-    id: c.id, name: c.name, createdAt: c.createdAt, alive: r.alive,
+    id: c.id, name: c.name, createdAt: c.createdAt, alive: r.alive, archived: !!c.archived,
     project: c.cwd && c.cwd !== WORKDIR ? path.basename(c.cwd) : null,
     status: r.alive ? r.status : "ended",
     lastText: r.lastText, lastAt: r.lastAt || c.createdAt, count: r.count,
@@ -475,6 +475,21 @@ async function getLatest(cwd) {
   }
 }
 
+// Stop this chat's Claude and forget the chat: its Terminal file, its photos, everything.
+async function deleteChat(id) {
+  const c = chats[id];
+  if (!c) return false;
+  await tmux("kill-session", "-t", c.tmux).catch(() => {});
+  resolvePending(id, null);
+  delete chats[id];
+  delete runtime[id];
+  fs.rmSync(path.join(TERM_DIR, `${c.tmux}.command`), { force: true });
+  fs.rmSync(path.join(PHOTO_DIR, id), { recursive: true, force: true });
+  save();
+  broadcast({ type: "removed", id });
+  return true;
+}
+
 async function createChat(name, { terminal = true, project } = {}) {
   const id = crypto.randomUUID();
   const now = new Date();
@@ -703,6 +718,7 @@ const PUSH_SUBJECT = "https://github.com/juslangit/claude-chat";
 async function notify(id, text, { force = false } = {}) {
   try {
     if (!subscriptions.length || (!force && Date.now() < lookingUntil)) return [];
+    if (chats[id]?.archived) return []; // archived means leave me alone
     const keys = push.vapidKeys(ENV_FILE);
     if (!keys) { console.error(`push: no signing key in ${ENV_FILE} yet`); return []; }
     const c = chats[id];
@@ -788,6 +804,13 @@ async function api(req, res, url) {
     const results = await notify(null, "Notifications are on. You'll get one like this when Claude finishes or needs you.", { force: true });
     const ok = (r) => r.status >= 200 && r.status < 300;
     return json(res, { sent: results.filter(ok).length, failed: results.filter((r) => !ok(r)).map((r) => `${r.status} ${r.text}`) });
+  }
+
+  // Tidy-up from Settings: forget every chat whose Claude has stopped. Running ones are left alone.
+  if (url.pathname === "/api/chats/stopped" && req.method === "DELETE") {
+    const stopped = Object.keys(chats).filter((id) => !rt(id).alive);
+    for (const id of stopped) await deleteChat(id);
+    return json(res, { deleted: stopped.length });
   }
 
   // A photo you sent, for the phone to show in the chat.
@@ -896,19 +919,17 @@ async function api(req, res, url) {
       if (!r.alive) { await startClaude(c, { resume: true }); openTerminal(c).catch((e) => console.error("could not open Terminal:", e.message)); }
       return json(res, { ok: true });
     case "PATCH ": {
-      const name = String((await body(req)).name || "").trim().slice(0, 60);
-      if (name) { c.name = name; c.autoName = false; save(); chatChanged(id); }
+      // Rename, or archive: an archived chat keeps running and keeps everything, it just leaves the list
+      // on the phone and stops sending notifications.
+      const b = await body(req);
+      const name = String(b.name || "").trim().slice(0, 60);
+      if (name) { c.name = name; c.autoName = false; }
+      if ("archived" in b) c.archived = !!b.archived;
+      if (name || "archived" in b) { save(); chatChanged(id); }
       return json(res, summary(c));
     }
     case "DELETE ":
-      await tmux("kill-session", "-t", c.tmux).catch(() => {});
-      resolvePending(id, null);
-      delete chats[id];
-      delete runtime[id];
-      fs.rmSync(path.join(TERM_DIR, `${c.tmux}.command`), { force: true });
-      fs.rmSync(path.join(PHOTO_DIR, id), { recursive: true, force: true });
-      save();
-      broadcast({ type: "removed", id });
+      await deleteChat(id);
       return json(res, { ok: true });
   }
   throw fail("Not found", 404);

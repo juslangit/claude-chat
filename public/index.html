@@ -66,6 +66,8 @@
     </div>
     <!-- a note for each computer the phone can't reach: "Luqman's MacBook Air — offline since 19:43" -->
     <div id="offline-notes"></div>
+    <!-- everything you've put away lives behind this row -->
+    <button id="archived-row" class="archived-row" hidden></button>
     <div id="chat-list"></div>
     <p class="footnote"><svg width="11" height="13" viewBox="0 0 11 13" fill="currentColor" fill-rule="evenodd"><path d="M2 5.5V4a3.5 3.5 0 0 1 7 0v1.5h.5a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1h-8a1 1 0 0 1-1-1V6.5a1 1 0 0 1 1-1zm1.5 0h4V4a2 2 0 0 0-4 0z"/></svg>Your chats run on your own computers and reach this phone only over your private Tailscale network.</p>
   </main>
@@ -100,6 +102,9 @@
       <button id="sound-toggle" class="cell">Reply sound<span id="sound-state" class="muted"></span></button>
       <button id="notify-toggle" class="cell">Notifications<span id="notify-state" class="muted"></span></button>
       <button id="computers-btn" class="cell">Computers<span id="computers-count" class="muted"></span></button>
+    </div>
+    <div class="group">
+      <button id="delete-stopped" class="cell danger">Delete stopped chats<span id="stopped-count" class="muted"></span></button>
     </div>
     <p class="sheet-note">Notifications work in the Home Screen app: add Claude Chats to your Home Screen, open it from there, then turn them on.</p>
   </main>
@@ -243,7 +248,8 @@
     </div>
     <div class="group">
       <button id="pin-chat" class="cell"><span id="pin-label">Pin chat</span><span class="muted">keeps it at the top</span></button>
-      <button id="end-chat" class="cell danger">End chat</button>
+      <button id="archive-chat" class="cell"><span id="archive-label">Archive chat</span><span class="muted">hides it, keeps everything</span></button>
+      <button id="end-chat" class="cell danger">Delete chat</button>
     </div>
   </div>
 </div>

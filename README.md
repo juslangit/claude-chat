@@ -78,6 +78,9 @@ Use Claude Code on the home Mac from your iPhone, like WhatsApp.
 | Send Claude a photo | **+** next to the typing box → pick or take one, add a caption if you like, send |
 | Reply to one particular message | Swipe it to the right — it's quoted above the typing box |
 | Keep a chat at the top of the list | Swipe it to the right in the list (or Chat info → Pin chat) |
+| Hide a chat without losing it | Swipe it to the **left** (or Chat info → Archive chat). It's behind the **Archived** row at the top of the list, and it stops notifying you |
+| Delete a chat for good | Chat info → **Delete chat** — Claude stops and the conversation and its photos go |
+| Clear out everything that has stopped | ⚙ Settings → **Delete stopped chats** (it says how many and asks first) |
 | Find something in a chat | Chat info → **Search**; the arrows jump between matches |
 | Get a notification when Claude finishes or needs you | ⋯ → **Notifications** (Home Screen app only — see below) |
 | Bring back a stopped chat (e.g. after a restart) | Open it, tap **Resume on the Mac** |
