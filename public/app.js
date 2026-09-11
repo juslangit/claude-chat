@@ -98,12 +98,19 @@ async function api(path, { method, body, timeout } = {}, comp = home) {
   return data;
 }
 
-function toast(text) {
+// A note at the bottom for a few seconds. With an action — { label: "Undo", run } — it carries a button
+// and stays a little longer.
+function toast(text, action) {
   const t = $("#toast");
   t.textContent = text;
+  if (action) {
+    const b = Object.assign(document.createElement("button"), { className: "toast-action", textContent: action.label });
+    b.onclick = () => { clearTimeout(toast.timer); t.hidden = true; action.run(); };
+    t.append(b);
+  }
   t.hidden = false;
   clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => (t.hidden = true), 4500);
+  toast.timer = setTimeout(() => (t.hidden = true), action ? 6000 : 4500);
 }
 
 // ── live connection to the Mac ─────────────────────────────────────────────
@@ -1574,7 +1581,7 @@ async function toggleArchive(key) {
   const archived = !isArchived(c);
   try {
     await chatApi(c, "", { method: "PATCH", body: { archived } });
-    toast(archived ? "Archived — it's in the Archived row" : "Back in your chats");
+    toast(archived ? "Archived — it's in the Archived row" : "Back in your chats", { label: "Undo", run: () => toggleArchive(key) });
   } catch (e) { toast(e.message); }
 }
 $("#archive-chat").onclick = () => { closeSheets(); if (state.current) toggleArchive(state.current); };
@@ -1636,16 +1643,21 @@ $("#pick-all").onclick = () => {
 };
 const pickedChats = () => [...(state.picking || [])].map((k) => state.chats.get(k)).filter(Boolean);
 const plural = (n) => `${n} chat${n === 1 ? "" : "s"}`;
-// Runs one request per chat, and says how many went through.
-async function forEachPicked(chats, request, did) {
+// Runs one request per chat, and says how many went through. With an undo, the note offers it for
+// exactly the chats that went through.
+async function forEachPicked(chats, request, did, undo) {
   const results = await Promise.allSettled(chats.map(request));
-  const ok = results.filter((r) => r.status === "fulfilled").length;
-  toast(`${did} ${plural(ok)}` + (ok < chats.length ? ` — ${chats.length - ok} didn't go through` : ""));
+  const done = chats.filter((_, i) => results[i].status === "fulfilled");
+  toast(`${did} ${plural(done.length)}` + (done.length < chats.length ? ` — ${chats.length - done.length} didn't go through` : ""),
+    undo && done.length ? { label: "Undo", run: () => undo(done) } : null);
 }
+// Archive (or unarchive) several; Undo flips the same ones back.
+const archiveAll = (chats, archived) => forEachPicked(chats, (c) => chatApi(c, "", { method: "PATCH", body: { archived } }),
+  archived ? "Archived" : "Unarchived", (done) => archiveAll(done, !archived));
 $("#pick-archive").onclick = () => {
   const chats = pickedChats(), archived = !state.archivedView;
   stopPicking();
-  forEachPicked(chats, (c) => chatApi(c, "", { method: "PATCH", body: { archived } }), archived ? "Archived" : "Unarchived");
+  archiveAll(chats, archived);
 };
 $("#pick-delete").onclick = () => {
   const chats = pickedChats();
