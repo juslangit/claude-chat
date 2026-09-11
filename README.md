@@ -80,7 +80,8 @@ Use Claude Code on the home Mac from your iPhone, like WhatsApp.
 | Send Claude a photo | **+** next to the typing box → pick or take one, add a caption if you like, send |
 | Get a render, screenshot or file **from** Claude | Ask for it. Claude runs `cchat send <file> "caption"` and it appears in the chat; just naming a file's path in its reply shows it too |
 | Reply to one particular message | Swipe it to the right — it's quoted above the typing box |
-| Keep a chat at the top of the list | Swipe it to the right in the list (or Chat info → Pin chat) |
+| Keep a chat at the top of the list | Hold it in the list → **Pin** (or Chat info → Pin chat). Pins are kept on the computer, so every link shows them |
+| Go to another computer's own app | ⚙ Settings → your face (top right) → tap that computer. The first time, add its page to your Home Screen — it's called **Claude PC** or **Claude Mac** |
 | Hide a chat without losing it | Swipe it to the **left** (or Chat info → Archive chat). It's behind the **Archived** row at the top of the list, and it stops notifying you |
 | Delete a chat for good | Chat info → **Delete chat** — Claude stops and the conversation and its photos go |
 | Clear out everything that has stopped | ⚙ Settings → **Delete stopped chats** (it says how many and asks first) |
@@ -106,6 +107,7 @@ node dev/checks/screenshots.mjs    # iPhone-size pictures of every screen, light
 | `commands` | Claude Code's own commands from the phone, the result cards, menus, the risky ones | 31 |
 | `archive` | archiving and unarchiving, staying quiet while archived, deleting the stopped ones | 27 |
 | `features` | photos, pins, search in a chat, swipe to reply, notifications end to end | 43 |
+| `links` | each computer's own link from Settings, and pins and read marks kept on the computers | 30 |
 | `fixes` | reconnecting, "offline since", the Host and Origin checks, stuck "typing…" | 47 |
 
 Each suite starts **its own** claude-chat on port 4479 — its own data folder, its own tmux server, its own
@@ -123,10 +125,11 @@ node dev/update-computer.mjs desktop-k2m7l30      # have that computer pull and 
 
 ## Notifications
 
-The iPhone only allows notifications for apps on the Home Screen (iOS 16.4 or later). Open Claude Chats
-from the Home Screen, then ⋯ → **Notifications** → Allow; a test one arrives straight away. From then on,
+The iPhone only allows notifications for apps on the Home Screen (iOS 16.4 or later). Open the app (**Claude Mac**
+or **Claude PC**) from the Home Screen, then ⋯ → **Notifications** → Allow; a test one arrives straight away. From then on,
 every computer sends one when Claude finishes a reply or needs you (a question or an approval) — but not
-while you have the app open in front of you. Tap one to open that chat.
+while you have the app open in front of you. Tap one to open that chat. Each computer's own app asks for
+notifications separately.
 
 They travel through Apple's push service, encrypted so only your iPhone can read them. The key that signs
 them is `CLAUDE_CHAT_VAPID_PUBLIC` / `CLAUDE_CHAT_VAPID_PRIVATE` in `~/.claude/.env`: made the first time

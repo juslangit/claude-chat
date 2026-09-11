@@ -625,3 +625,7 @@ a.btn { display: grid; place-items: center; text-decoration: none; }
 /* While a sheet is up (the screen's keys, say), the toast sits higher so it doesn't cover the buttons. */
 body:has(.sheet:not([hidden])) .toast { bottom: calc(100% - var(--app-h) + env(safe-area-inset-bottom) + 34dvh); }
 body:has(#row-menu:not([hidden])) .toast { display: none; } /* the hold menu is taller; a note would sit on its title */
+
+/* after switching computer in Settings: where you are, and how to add this computer's own icon */
+.link-hint { margin-bottom: 14px; }
+.link-hint .link { display: block; margin: 8px 0 0 auto; font-weight: 600; }

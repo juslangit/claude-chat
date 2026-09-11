@@ -9,7 +9,6 @@ const state = {
   current: null,       // id of the open chat
   online: true,        // false while the phone can't reach the Mac
   hintUntil: 0,        // until this time, the chat's top bar says "tap here for chat info"
-  seen: read("seen", {}),        // id → how many of Claude's messages you've seen (for unread badges)
   drafts: read("drafts", {}),    // id → half-typed message
   filter: read("filter", "all"), // which chip is picked above the chat list
   search: "",
@@ -17,7 +16,6 @@ const state = {
   sound: read("sound", true),    // the pop when Claude answers
   lastStep: null,                // the open chat's latest step, for the "typing…" bubble
   computers: [],                 // every computer running claude-chat that this phone can reach
-  pinned: read("pinned", []),    // keys of pinned chats, newest pin first
   archivedView: false,           // true while the list is showing what you've archived
   picking: null,                 // while you're selecting chats: the Set of keys ticked so far
 };
@@ -67,6 +65,7 @@ function previewOf(last) {
 
 function read(key, fallback) { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } }
 function write(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch {} }
+function forget(key) { try { localStorage.removeItem(key); } catch {} }
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
 // Small drawings that get used in more than one place.
@@ -234,6 +233,7 @@ async function refreshComputer(comp) {
     for (const [key, c] of state.chats) if (c.comp === comp.id) state.chats.delete(key);
     for (const c of list) state.chats.set(keyOf(comp, c.id), tag(comp, c));
     renderList();
+    moveOldMarks(comp);
     if (cur()?.comp === comp.id) { renderChatChrome(); await loadMessages(state.current); }
   } catch (e) { if (comp === home) toast(e.message); }
 }
@@ -245,6 +245,7 @@ async function refreshComputer(comp) {
 async function startComputers() {
   connect(home);
   try { Object.assign(home, await api("/api/whoami")); } catch {}
+  arrived();
   renderComputers();
   findComputers();
   setInterval(() => { findComputers(); checkVersion(); }, 120000);
@@ -353,7 +354,7 @@ function when(ts) {
   return d.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "2-digit" });
 }
 
-const unreadOf = (c) => Math.max(0, c.count - (state.seen[c.id] ?? 0));
+const unreadOf = (c) => Math.max(0, c.count - (c.seen || 0)); // read marks are kept on the chat's computer
 
 // Does a chat belong under the chip that's picked, and match what's typed in Search?
 // Archived chats only show while you're looking at Archived, and never anywhere else.
@@ -371,7 +372,7 @@ const NOTHING = { all: "No chats found", unread: "No unread chats", working: "Cl
 
 function renderList() {
   // Pinned chats first, then any waiting for you, then the most recent.
-  const all = [...state.chats.values()].sort((a, b) => isPinned(b) - isPinned(a) || !!b.pending - !!a.pending || b.lastAt - a.lastAt);
+  const all = [...state.chats.values()].sort((a, b) => (b.pinnedAt || 0) - (a.pinnedAt || 0) || !!b.pending - !!a.pending || b.lastAt - a.lastAt);
   const shown = all.filter(matches);
   const archived = all.filter(isArchived).length;
 
@@ -493,7 +494,7 @@ $("#ask-box").addEventListener("submit", (e) => {
 const plain = (s) => String(s || "").replace(/```[^\n]*\n?/g, "").replace(/[*`#]+/g, "").replace(/\s+/g, " ").trim();
 
 function rowHtml(c) {
-  const unread = c.id === state.current ? 0 : unreadOf(c);
+  const unread = c.key === state.current ? 0 : unreadOf(c);
   let badge = unread ? `<span class="badge">${unread}</span>` : "";
   let preview;
   if (c.pending) {
@@ -578,7 +579,7 @@ $("#back").onclick = () => go("chats");
 
 // The number next to the back arrow: other chats with something new (archived ones stay quiet).
 function renderBackCount() {
-  const n = [...state.chats.values()].filter((c) => !isArchived(c) && c.id !== state.current && (unreadOf(c) || c.pending)).length;
+  const n = [...state.chats.values()].filter((c) => !isArchived(c) && c.key !== state.current && (unreadOf(c) || c.pending)).length;
   $("#back-count").textContent = n || "";
 }
 
@@ -668,10 +669,44 @@ function renderDoing(c) {
   $("#doing").hidden = !note && !step;
 }
 
+// Opening a chat marks Claude's replies in it as read. The mark is kept on the chat's computer, so the
+// unread counters are the same on every link and phone. (This used to compare a chat's id with the open
+// chat's key, which never matched — so opening a chat never cleared its counter.)
 function markSeen(c) {
-  if (c.id !== state.current || document.visibilityState !== "visible") return;
-  state.seen[c.id] = c.count;
-  write("seen", state.seen);
+  if (c.key !== state.current || document.visibilityState !== "visible" || (c.seen || 0) >= c.count) return;
+  setSeen(c, c.count);
+}
+function setSeen(c, n) {
+  state.chats.set(c.key, { ...c, seen: n }); // show it straight away
+  chatApi(c, "", { method: "PATCH", body: { seen: n } }).catch(() => {});
+}
+
+// Pins and read marks used to be kept on the phone, separately for each link. Move whatever is left of
+// them onto the computers — each computer's chats once it has answered — then forget them here.
+let moving = Promise.resolve();
+function moveOldMarks(comp) {
+  moving = moving.then(async () => {
+    let pins = read("pinned", null), seen = read("seen", null);
+    if (!pins?.length && !Object.keys(seen || {}).length) return;
+    for (const key of [...(pins || [])].reverse()) { // oldest pin first, so the newest still ends up on top
+      if (key.split("/")[0] !== comp.id) continue;
+      const c = state.chats.get(key);
+      if (c && !c.pinnedAt) { try { await chatApi(c, "", { method: "PATCH", body: { pinned: true } }); } catch { continue; } }
+      pins = pins.filter((k) => k !== key); // moved — or that chat is gone
+    }
+    for (const c of [...state.chats.values()].filter((x) => x.comp === comp.id)) {
+      const n = seen?.[c.id];
+      if (n == null) continue;
+      if (n > (c.seen || 0)) { try { await chatApi(c, "", { method: "PATCH", body: { seen: n } }); } catch { continue; } }
+      delete seen[c.id];
+    }
+    // read marks for chats no computer has any more would wait forever: drop them once every computer answered
+    if (seen && state.computers.every((x) => x.online)) {
+      for (const id of Object.keys(seen)) if (![...state.chats.values()].some((c) => c.id === id)) delete seen[id];
+    }
+    if (pins?.length) write("pinned", pins); else forget("pinned");
+    if (Object.keys(seen || {}).length) write("seen", seen); else forget("seen");
+  }).catch(() => {});
 }
 
 // Messages that arrive while a chat's history is loading wait here and go after it. Before, they were
@@ -1084,8 +1119,7 @@ $("#add-computer").onclick = async () => {
   } catch (e) { toast(e.message); }
 };
 $("#read-all").onclick = () => {
-  for (const c of state.chats.values()) state.seen[c.id] = c.count;
-  write("seen", state.seen);
+  for (const c of [...state.chats.values()]) if (unreadOf(c)) setSeen(c, c.count);
   closeSheets();
   renderList();
 };
@@ -1559,16 +1593,22 @@ function setReply(r) {
 $("#reply-cancel").onclick = () => setReply(null);
 swipeable($("#messages"), ".bubble.in:not(.tools):not(.command), .bubble.out", (b) => b.dataset.quote && setReply({ who: b.dataset.who, text: b.dataset.quote }));
 
-// Pinned chats stay at the top of the list. Hold a chat to pin or unpin it, or use Chat info. The pins
-// are kept on this phone.
-const isPinned = (c) => state.pinned.includes(c.key);
-function togglePin(key) {
-  const on = !state.pinned.includes(key);
-  state.pinned = on ? [key, ...state.pinned] : state.pinned.filter((k) => k !== key);
-  write("pinned", state.pinned);
-  renderList();
-  if (cur()) fillInfo(cur());
-  toast(on ? "Pinned to the top" : "Unpinned");
+// Pinned chats stay at the top of the list, newest pin first. Hold a chat to pin or unpin it, or use Chat
+// info. The pin is kept on the chat's computer, so every link and phone shows the same pins.
+const isPinned = (c) => !!c?.pinnedAt;
+async function togglePin(key) {
+  const c = state.chats.get(key);
+  if (!c) return;
+  const on = !isPinned(c);
+  const show = (chat) => { state.chats.set(key, chat); renderList(); if (cur()) fillInfo(cur()); };
+  show({ ...c, pinnedAt: on ? Date.now() : null }); // straight away; the computer confirms
+  try {
+    show(tag(compOf(c), await chatApi(c, "", { method: "PATCH", body: { pinned: on } })));
+    toast(on ? "Pinned to the top" : "Unpinned");
+  } catch (e) {
+    show(c);
+    toast(`Couldn't ${on ? "pin" : "unpin"} it: ${e.message}`);
+  }
 }
 $("#pin-chat").onclick = () => state.current && togglePin(state.current);
 
@@ -2042,7 +2082,7 @@ function renderProfile() {
   const online = state.computers.filter((c) => c.online);
   $("#profile-computers").hidden = online.length < 2;
   $("#profile-computers").innerHTML = online.map((c) =>
-    `<button class="chip${c === accountOn ? " on" : ""}" data-comp="${c.id}">${esc(c.name || "This computer")}</button>`).join("");
+    `<button class="chip${c === home ? " on" : ""}" data-comp="${c.id}">${esc(c.name || "This computer")}</button>`).join("");
 
   const me = d.accounts.find((a) => a.id === d.current) || d.accounts[0];
   // The face on the Settings bar is the account in use, so a glance says which one you're on.
@@ -2065,7 +2105,7 @@ function renderProfile() {
 
   $("#profile-note").textContent = online.length < 2
     ? "New chats run on the account with the tick. Chats already going keep the account they started on."
-    : `New chats on ${accountOn.name || "this computer"} run on the account with the tick. Each computer chooses its own.`;
+    : `New chats on ${accountOn.name || "this computer"} run on the account with the tick. Each computer chooses its own; tap another one to open its own app.`;
   // While an account is being added, the form has the sheet to itself.
   const busy = !$("#profile-login").hidden;
   $("#profile-add").hidden = busy;
@@ -2075,13 +2115,29 @@ function renderProfile() {
 
 const closeAddForm = () => { $("#profile-login").hidden = true; renderProfile(); };
 
+// Each computer's own link is its own app, with its own Home Screen icon. Picking another computer here
+// goes to its link, on its Settings — the account screen there is that computer's.
 $("#profile-computers").addEventListener("click", (e) => {
   const comp = state.computers.find((c) => c.id === e.target.closest(".chip")?.dataset.comp);
-  if (!comp || comp === accountOn) return;
-  accountOn = comp;
-  closeAddForm();
-  loadProfile();
+  if (!comp || comp === home || !comp.base) return;
+  saveDraft();
+  location.href = `${comp.base}/?from=${encodeURIComponent(home.name || "")}#settings`;
 });
+
+// Arriving from another computer's Settings (…/?from=<its name>#settings): say where you are and, the
+// first time outside the Home Screen app, how to give this computer's link its own icon.
+function arrived() {
+  if (!new URLSearchParams(location.search).has("from")) return;
+  history.replaceState(null, "", location.pathname + location.hash); // tidy the address before it becomes an icon
+  const where = home.name || "this computer";
+  const standalone = navigator.standalone === true || matchMedia("(display-mode: standalone)").matches;
+  if (standalone || read("iconHint", false)) return toast(`You're on ${where}`);
+  const icon = document.querySelector('meta[name="apple-mobile-web-app-title"]')?.content || "Claude";
+  $("#link-hint-title").textContent = `You're on ${where}'s own app`;
+  $("#link-hint-text").textContent = `To give it its own icon, called ${icon}: tap Share, then Add to Home Screen. If it opened on top of your other app, tap the Safari button first.`;
+  $("#link-hint").hidden = false;
+}
+$("#link-hint-ok").onclick = () => { write("iconHint", true); $("#link-hint").hidden = true; };
 
 $("#profile-list").addEventListener("click", async (e) => {
   const id = e.target.closest(".account-row")?.dataset.account;
