@@ -612,14 +612,15 @@ function renderContext(c) {
   bar.classList.toggle("warm", percent >= 70 && percent < 90);
   bar.classList.toggle("hot", percent >= 90);
   $("#context-fill").style.width = `${percent}%`;
-  $("#context-text").textContent = `Claude's memory ${percent}% full · tap to free it up`;
+  // "This chat", not "Claude's memory": it measures how long the conversation is, not what Claude has saved.
+  $("#context-text").textContent = `This chat is ${percent}% full · tap to free it up`;
   bar.dataset.percent = percent;
 }
 
 $("#context-bar").onclick = async () => {
   const c = cur();
   if (!c) return;
-  if (!confirm(`Claude's memory in this chat is ${$("#context-bar").dataset.percent}% full.\n\nCompact it? Claude writes itself a summary of what's happened so far and lets go of the rest — nothing on your computer changes, and the conversation stays here.`)) return;
+  if (!confirm(`This chat is ${$("#context-bar").dataset.percent}% full.\n\nCompact it? Claude writes itself a summary of what's happened so far and lets go of the rest — nothing on your computer changes, and the conversation stays here.`)) return;
   toast("Compacting…");
   try { await chatApi(c, "/command", { body: { command: "/compact" }, timeout: 120000 }); }
   catch (e) { toast(e.message); }
@@ -1762,7 +1763,7 @@ setInterval(() => { if (document.visibilityState === "visible") tellLooking(true
 
 const FAVOURITE_COMMANDS = [
   { name: "/usage", about: "What you've used against your limits" },
-  { name: "/context", about: "What's filling Claude's memory in this chat" },
+  { name: "/context", about: "What's filling up this chat" },
   { name: "/status", about: "Model, folder, version and account" },
   { name: "/model", about: "Change the model for this chat" },
   { name: "/compact", about: "Free up memory, keeping a summary" },
