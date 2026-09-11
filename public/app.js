@@ -7,7 +7,7 @@ const state = {
   chats: new Map(),    // id → summary from the server
   messages: new Map(), // id → messages, once a chat has been opened
   current: null,       // id of the open chat
-  online: true,        // false while the phone can't reach the Mac
+  online: true,        // false while the phone can't reach the computer
   hintUntil: 0,        // until this time, the chat's top bar says "tap here for chat info"
   seen: read("seen", {}),        // id → how many of Claude's messages you've seen (for unread badges)
   drafts: read("drafts", {}),    // id → half-typed message
@@ -1096,7 +1096,7 @@ function fillInfo(c) {
   if (!c) return;
   $("#info-avatar").innerHTML = avatar(c, "big");
   $("#info-name").textContent = c.name;
-  $("#info-sub").textContent = `Claude Code on your Mac · ${c.status === "ended" ? "stopped" : "running"}`;
+  $("#info-sub").textContent = `Claude Code on your ${compOf(c).os === "windows" ? "PC" : "Mac"} · ${c.status === "ended" ? "stopped" : "running"}`;
   $("#info-folder").textContent = c.project || "Whole project folder";
   $("#info-computer").textContent = compOf(c).name || "This computer";
   $("#info-account-row").hidden = !c.account;   // which Claude account this chat is running on
