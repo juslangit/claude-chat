@@ -75,6 +75,7 @@ const ICON = {
   mic: `<svg class="voice" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>`,
   phone: `<svg class="voice" viewBox="0 0 24 24" fill="currentColor"><path d="M5 3.5h3.2l1.6 4-2.1 1.5a11 11 0 0 0 7.3 7.3l1.5-2.1 4 1.6V19a1.8 1.8 0 0 1-1.9 1.8C10.3 20.3 3.7 13.7 3.2 5.4A1.8 1.8 0 0 1 5 3.5z"/></svg>`,
   pin: `<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M14.5 2.5l7 7-2.3.9-3.6 3.6.6 4.6-1.6 1.6-4.2-4.2L5 21.4 3.6 20l5.4-5.4-4.2-4.2 1.6-1.6 4.6.6 3.6-3.6z"/></svg>`,
+  command: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M14.5 4.5 9.5 19.5"/><path d="M6 8.5 2.5 12 6 15.5M18 8.5 21.5 12 18 15.5"/></svg>`,
 };
 
 // Talk to a computer's server (this one unless another is given).
@@ -571,6 +572,16 @@ function addMessage(box, m) {
     group.tools = null;
     return;
   }
+  if (m.role === "command") {
+    // One of Claude Code's own commands, and what the Terminal showed for it.
+    box.append(el("div", "bubble in command",
+      `<div class="command-top">${ICON.command}<b>${esc(m.command)}</b>${m.asks ? `<span class="command-asks">needs your answer</span>` : ""}</div>
+       <pre>${esc(m.text)}</pre>
+       ${m.asks ? `<button class="command-screen">Answer it on the screen</button>` : ""}`));
+    group.side = null;
+    group.tools = null;
+    return;
+  }
   if (m.role === "tool") {
     if (!group.tools) {
       group.tools = el("div", `bubble in tools${group.side === "in" ? "" : " tail"}`,
@@ -643,6 +654,7 @@ $("#messages").addEventListener("click", (e) => {
   if (Date.now() - swipedAt < 400) return; // the end of a swipe, not a tap
   const img = e.target.closest(".photo");
   if (img) { $("#viewer-img").src = img.src; $("#viewer").hidden = false; return; }
+  if (e.target.closest(".command-screen")) { openSheet("#screen"); return pollScreen(); }
   e.target.closest(".tools")?.classList.toggle("open");
 });
 
@@ -1344,7 +1356,7 @@ function setReply(r) {
   input.focus();
 }
 $("#reply-cancel").onclick = () => setReply(null);
-swipeable($("#messages"), ".bubble.in:not(.tools), .bubble.out", (b) => b.dataset.quote && setReply({ who: b.dataset.who, text: b.dataset.quote }));
+swipeable($("#messages"), ".bubble.in:not(.tools):not(.command), .bubble.out", (b) => b.dataset.quote && setReply({ who: b.dataset.who, text: b.dataset.quote }));
 
 // Pinned chats stay at the top of the list. Swipe a chat to the right to pin or unpin it, or use Chat
 // info. The pins are kept on this phone.
@@ -1546,6 +1558,125 @@ function tellLooking(looking, comps = state.computers.filter((c) => c.online)) {
   }
 }
 setInterval(() => { if (document.visibilityState === "visible") tellLooking(true); }, 20000);
+
+// ── Claude Code's own commands ─────────────────────────────────────────────
+// The ⌘ button at the top of a chat. Tap a command and it runs in that chat; what the Terminal showed
+// comes back as a card in the conversation. One that asks you to pick something (like /model) opens the
+// screen view, where the number keys answer it. The ones that can lose work ask first.
+
+const FAVOURITE_COMMANDS = [
+  { name: "/usage", about: "What you've used against your limits" },
+  { name: "/context", about: "What's filling Claude's memory in this chat" },
+  { name: "/status", about: "Model, folder, version and account" },
+  { name: "/model", about: "Change the model for this chat" },
+  { name: "/compact", about: "Free up memory, keeping a summary" },
+  { name: "/diff", about: "What's changed in the project so far" },
+  { name: "/insights", about: "A report on how this session went" },
+  { name: "/export", about: "Save this conversation to a file" },
+  { name: "/mcp", about: "Add-on servers, like Godot" },
+  { name: "/agents", about: "The helper agents available here" },
+  { name: "/doctor", about: "Check Claude Code's setup on that computer" },
+  { name: "/help", about: "Claude Code's own list of commands" },
+  { name: "/clear", about: "Start the conversation fresh" },
+  { name: "/rewind", about: "Undo back to an earlier point" },
+];
+// Everything else worth reaching from the phone; these show up when you search.
+const MORE_COMMANDS = [
+  { name: "/add-dir", about: "Let Claude use another folder too" },
+  { name: "/artifacts", about: "Pages Claude has published" },
+  { name: "/autocompact", about: "When to summarise by itself" },
+  { name: "/branch", about: "Split this conversation in two" },
+  { name: "/btw", about: "Ask something on the side" },
+  { name: "/bug", about: "Report a problem with Claude Code" },
+  { name: "/cd", about: "Move this chat to another folder" },
+  { name: "/code-review", about: "Review the changes on this branch" },
+  { name: "/color", about: "Colour of the prompt bar" },
+  { name: "/config", about: "Claude Code's settings" },
+  { name: "/copy", about: "Copy the last reply" },
+  { name: "/cost", about: "The same as /usage" },
+  { name: "/deep-research", about: "Search the web thoroughly and report back" },
+  { name: "/effort", about: "How hard Claude should think" },
+  { name: "/exit", about: "Stop Claude in this chat" },
+  { name: "/fast", about: "Faster answers from Opus" },
+  { name: "/feedback", about: "Send Anthropic your thoughts" },
+  { name: "/focus", about: "Hide everything but the conversation" },
+  { name: "/fork", about: "Carry on in a copy, in the background" },
+  { name: "/goal", about: "Keep going until something is true" },
+  { name: "/hooks", about: "The hooks set up on that computer" },
+  { name: "/init", about: "Write a CLAUDE.md for this project" },
+  { name: "/keybindings", about: "Keyboard shortcuts" },
+  { name: "/list-agents", about: "Agents and teammates running now" },
+  { name: "/login", about: "Sign in to your account" },
+  { name: "/logout", about: "Sign out on that computer" },
+  { name: "/loop", about: "Run something over and over on a timer" },
+  { name: "/memory", about: "Edit the CLAUDE.md instructions" },
+  { name: "/permissions", about: "What Claude may do without asking" },
+  { name: "/plan", about: "Plan a big change before doing it" },
+  { name: "/plugin", about: "Add-ons for Claude Code" },
+  { name: "/resume", about: "Open an earlier conversation" },
+  { name: "/security-review", about: "Check the changes for security holes" },
+  { name: "/simplify", about: "Tidy up the code that changed" },
+  { name: "/subtask", about: "Hand a side job to a helper" },
+  { name: "/tasks", about: "Work running in the background" },
+  { name: "/theme", about: "Light or dark in the Terminal" },
+  { name: "/usage-credits", about: "Turn usage credits on or off" },
+  { name: "/verify", about: "Check that what it built really works" },
+];
+// The ones that can lose work: each says what it does before it runs.
+const RISKY_COMMANDS = {
+  "/clear": "This wipes what Claude remembers in this chat and starts a new conversation.",
+  "/rewind": "This can undo changes Claude made to your files, back to an earlier point.",
+  "/exit": "Claude stops in this chat. You'd tap Resume to bring it back.",
+  "/quit": "Claude stops in this chat. You'd tap Resume to bring it back.",
+  "/logout": "This signs Claude Code out on that computer; chats there stop working until you sign in again.",
+  "/batch": "This sets dozens of Claude agents changing your code at the same time.",
+  "/loop": "This keeps running on a timer until something stops it.",
+  "/background": "Claude carries on without this chat window.",
+};
+
+let myCommands = []; // the ones you've written yourself, if any
+$("#commands-btn").onclick = async () => {
+  const c = cur();
+  if (!c) return;
+  openSheet("#commands");
+  $("#command-search").value = "";
+  renderCommands();
+  try { myCommands = await api(`/api/commands?chat=${encodeURIComponent(c.id)}`, { timeout: 8000 }, compOf(c)); } catch { myCommands = []; }
+  renderCommands();
+};
+$("#command-search").addEventListener("input", renderCommands);
+
+function renderCommands() {
+  const typed = $("#command-search").value.trim().toLowerCase().replace(/^\//, "");
+  const matches = (x) => !typed || x.name.slice(1).toLowerCase().includes(typed) || (x.about || "").toLowerCase().includes(typed);
+  const row = (x) => `<button class="cell pick command-run" data-command="${esc(x.name)}">
+      <span class="pick-text"><b>${esc(x.name)}</b><small>${esc(x.about || "")}</small></span>
+      ${RISKY_COMMANDS[x.name] ? `<span class="command-warn">asks first</span>` : ""}</button>`;
+  const group = (title, list) => (list.length ? `<div class="section-title">${title}</div><div class="group">${list.map(row).join("")}</div>` : "");
+  const mine = myCommands.filter(matches), favourites = FAVOURITE_COMMANDS.filter(matches), more = MORE_COMMANDS.filter(matches);
+  let html = group("Your own", mine) + group(typed ? "Matches" : "The ones you'll want", favourites) + (typed ? group("More", more) : "");
+  // Nothing matches: offer to send whatever was typed anyway — it's a real command somewhere, perhaps.
+  if (!html) {
+    html = `<div class="cell muted">No command matches “${esc(typed)}”.
+      <button class="link command-run" data-command="/${esc(typed)}">Send /${esc(typed)} anyway</button></div>`;
+  }
+  $("#command-list").innerHTML = html;
+}
+
+$("#commands").addEventListener("click", async (e) => {
+  const b = e.target.closest(".command-run");
+  const c = cur();
+  if (!b || !c) return;
+  const command = b.dataset.command;
+  const warning = RISKY_COMMANDS[command.split(" ")[0]];
+  if (warning && !confirm(`${command}\n\n${warning}\n\nRun it anyway?`)) return;
+  closeSheets();
+  toast(`Running ${command}…`);
+  try {
+    const card = await chatApi(c, "/command", { body: { command }, timeout: 60000 });
+    if (card?.asks) { openSheet("#screen"); pollScreen(); } // it wants you to pick something
+  } catch (err) { toast(err.message); }
+});
 
 // ── keep the typing bar above the iPhone keyboard ──────────────────────────
 

@@ -233,6 +233,20 @@ svg { display: block; flex: none; }
   align-self: center; max-width: 86%; margin: 10px 0 4px; padding: 6px 12px; border-radius: 8px;
   background: var(--notice); color: var(--notice-text); font-size: .76rem; text-align: center; box-shadow: var(--shadow);
 }
+/* a command's answer, read off the Terminal and kept in the chat */
+.bubble.command { width: 92%; padding: 8px 10px 9px; white-space: normal; }
+.command-top { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: .84rem; }
+.command-top b { color: var(--text); font-family: ui-monospace, Menlo, monospace; font-weight: 600; }
+.command-asks { margin-left: auto; padding: 1px 8px; border-radius: 9px; background: var(--notice); color: var(--notice-text); font-size: .7rem; }
+.bubble.command pre {
+  max-height: 44vh; overflow: auto; margin: 7px 0 0; padding: 8px 9px; border-radius: 6px;
+  background: var(--code); font: .68rem/1.35 ui-monospace, Menlo, monospace; white-space: pre;
+}
+.command-screen { margin-top: 8px; color: var(--green-text); font-size: .9rem; font-weight: 600; }
+.command-list { display: flex; flex-direction: column; gap: 14px; }
+.command-warn { flex: none; color: var(--warn); font-size: .72rem; }
+.command-list .pick-text b { font-family: ui-monospace, Menlo, monospace; }
+
 /* "typing…" bubble, which also says what Claude is doing: its latest note and its latest step. */
 .typing { margin-top: 8px; padding: 8px 12px 9px; white-space: normal; }
 .dots { display: flex; gap: 4px; padding: 5px 2px; }
@@ -433,6 +447,8 @@ svg { display: block; flex: none; }
   width: max-content; max-width: calc(100% - 32px); padding: 10px 16px; border-radius: 20px;
   background: rgba(40, 40, 40, .94); color: #fff; font-size: .9rem; text-align: center;
 }
+/* While a sheet is up (the screen's keys, say), the toast sits higher so it doesn't cover the buttons. */
+body:has(.sheet:not([hidden])) .toast { bottom: calc(env(safe-area-inset-bottom) + 34dvh); }
 
 /* ── swipe a chat to pin it, or a message to reply to it ── */
 .row, .messages .bubble.in:not(.tools), .messages .bubble.out { touch-action: pan-y; }
