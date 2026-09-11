@@ -181,6 +181,41 @@ try {
   await js(`document.querySelector("#archived-row").click(); true`);
   check("back in the main list", await until(`document.querySelectorAll("#chat-list .row").length === 1 && document.querySelector("#nav-title").textContent === "Chats"`, 4000));
 
+  // ── holding a chat: its menu, and no web-page sliding or zooming ──
+  const rowSel = `#chat-list .row[data-id="home/${A.id}"]`;
+  const menuOpen = `!document.querySelector("#row-menu").hidden`;
+  const finger = (type) => js(`(() => {
+    const el = document.querySelector(${JSON.stringify(rowSel)});
+    const r = el.getBoundingClientRect();
+    el.dispatchEvent(new PointerEvent(${JSON.stringify(type)}, { bubbles: true, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, pointerId: 11, pointerType: "touch", button: 0, isPrimary: true }));
+    return true;
+  })()`);
+  // Lifting the finger: the phone then "taps" the chat and the dimmed background under it.
+  const letGo = async () => { await finger("pointerup"); await js(`document.querySelector(${JSON.stringify(rowSel)}).click(); document.querySelector("#row-menu").click(); true`); await sleep(500); };
+  const hold = async () => { await finger("pointerdown"); return until(menuOpen, 1500); };
+  const label = (id) => js(`document.querySelector("#${id}").textContent`);
+
+  check("the chat list can't be dragged sideways", await js(`getComputedStyle(document.querySelector("#chat-list").closest(".page")).overflowX === "hidden"`));
+  check("double-tap and pinch don't zoom", await js(`document.querySelector("meta[name=viewport]").content.includes("user-scalable=no") && getComputedStyle(document.querySelector("#chat-list")).touchAction === "manipulation"`));
+  await finger("pointerdown"); await sleep(200); await finger("pointerup"); await sleep(600);
+  check("a quick touch doesn't open the menu", !(await js(menuOpen)));
+  check("holding a chat opens its menu", await hold());
+  check("…with Pin, Archive and Delete for that chat", (await label("row-menu-name")) === "keeper renamed" && (await label("row-pin-label")) === "Pin chat" && (await label("row-archive-label")) === "Archive chat" && (await label("row-delete")) === "Delete chat");
+  await letGo();
+  check("…letting go keeps it open, without opening the chat", await js(`${menuOpen} && location.hash === "#chats"`), await js("location.hash"));
+  await shot("0-hold-menu");
+  await js(`document.querySelector("#row-pin").click(); true`);
+  check("menu → Pin pins it", await until(`state.pinned.includes("home/${A.id}") && !!document.querySelector('${rowSel} .pin')`, 3000));
+  await hold(); await letGo();
+  check("…then the menu offers Unpin", (await label("row-pin-label")) === "Unpin chat");
+  await js(`document.querySelector("#row-pin").click(); true`);
+  check("menu → Unpin unpins it", await until(`!state.pinned.includes("home/${A.id}")`, 3000));
+  await hold(); await letGo();
+  await js(`document.querySelector("#row-archive").click(); true`);
+  check("menu → Archive archives it on the computer", await until(`!document.querySelector('${rowSel}')`, 6000) && (await one(A.id))?.archived === true);
+  await req("PATCH", `/api/chats/${A.id}`, { body: { archived: false } });
+  check("(put back for the next checks)", await until(`!!document.querySelector('${rowSel}')`, 6000));
+
   await js(`go("chat/home/${A.id}"); true`);
   await sleep(800);
   await js(`document.querySelector("#chat-head").click(); true`);
@@ -201,6 +236,15 @@ try {
   await sleep(600);
   check("Settings has the clear-out, greyed out with nothing stopped", await js(`(() => { const b = document.querySelector("#delete-stopped"); return b.textContent.includes("Delete stopped chats") && b.disabled; })()`));
   await shot("5-settings");
+
+  // Last, because it takes the chat away: holding it → Delete, after the usual "are you sure?".
+  await req("PATCH", `/api/chats/${A.id}`, { body: { archived: false } });
+  await js(`go("chats"); window.confirm = () => true; true`);
+  await until(`!!document.querySelector('${rowSel}')`, 6000);
+  await hold(); await letGo();
+  await js(`document.querySelector("#row-delete").click(); true`);
+  check("menu → Delete deletes it", await until(`!document.querySelector('${rowSel}')`, 6000) && !(await one(A.id)));
+  A = null;
   check("no errors in the page", errors.length === 0, errors.join(" | "));
 } catch (e) {
   check("test run finished without crashing", false, e.stack);

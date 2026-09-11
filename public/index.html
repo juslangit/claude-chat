@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- No zooming: it's an app, not a web page (double-tap is also switched off in the styles). -->
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <!-- See-through status bar, so the app runs to the very top of the screen. The iPhone gives a Home
@@ -293,6 +294,19 @@
       <button id="pin-chat" class="cell"><span id="pin-label">Pin chat</span><span class="muted">keeps it at the top</span></button>
       <button id="archive-chat" class="cell"><span id="archive-label">Archive chat</span><span class="muted">hides it, keeps everything</span></button>
       <button id="end-chat" class="cell danger">Delete chat</button>
+    </div>
+  </div>
+</div>
+
+<!-- hold a chat in the list: pin, archive or delete it without opening it -->
+<div id="row-menu" class="sheet" hidden>
+  <div class="card">
+    <div class="grabber"></div>
+    <div class="sheet-nav"><span></span><b id="row-menu-name"></b><button class="link right close">Cancel</button></div>
+    <div class="group">
+      <button id="row-pin" class="cell"><span id="row-pin-label">Pin chat</span><span class="muted">keeps it at the top</span></button>
+      <button id="row-archive" class="cell"><span id="row-archive-label">Archive chat</span><span class="muted">hides it, keeps everything</span></button>
+      <button id="row-delete" class="cell danger">Delete chat</button>
     </div>
   </div>
 </div>
