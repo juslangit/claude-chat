@@ -640,3 +640,8 @@ body:has(#row-menu:not([hidden])) .toast { display: none; } /* the hold menu is 
 .meter.warm .meter-top b { color: var(--accent-text); }
 .meter.hot .context-line i { background: var(--danger); }
 .meter.hot .meter-top b { color: var(--danger); }
+
+/* a message waiting for a computer that's off: greyed out, with a clock instead of ticks */
+.bubble.out.waiting { opacity: .62; }
+.waiting-mark { opacity: .9; }
+.ptext .waiting-mark { display: inline-block; vertical-align: -2px; margin-right: 3px; }

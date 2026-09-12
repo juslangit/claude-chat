@@ -257,6 +257,31 @@ try {
   await shot("list-offline-light");
   await shot("list-offline-dark", true);
   await S("Emulation.setEmulatedMedia", { features: [] });
+
+  // messages typed while the computer is off wait on the phone, with a clock instead of ticks
+  await js(`window.confirm = () => true; location.hash = "chat/${key}"; true`);
+  await sleep(800);
+  await js(`input.value = "first while it was off"; grow(); send(); true`);
+  check("a message sent to a computer that's off waits on the phone", await until(`(() => {
+    const b = document.querySelector('#waiting .bubble.waiting');
+    return !!b && b.textContent.includes("first while it was off") && !!b.querySelector(".waiting-mark");
+  })()`, 6000));
+  check("…the typing box is cleared, as if it had gone", await js(`input.value === ""`));
+  check("…and it's kept on the phone, so closing the app doesn't lose it", await js(`(JSON.parse(localStorage.queued || "{}")["${key}"] || []).length === 1`));
+  await shot("chat-waiting");
+  await js(`input.value = "second while it was off"; grow(); send(); true`);
+  await until(`document.querySelectorAll('#waiting .bubble.waiting').length === 2`, 6000);
+  await js(`go("chats"); true`);
+  await sleep(400);
+  const waitNote = await js(`document.querySelector("#chat-list .row .ptext").textContent.replace(/\\s+/g, " ").trim()`);
+  check("the chat list says how many are waiting", /2 messages waiting to send/.test(waitNote), waitNote);
+  await shot("list-waiting");
+  await js(`location.hash = "chat/${key}"; true`);
+  await sleep(600);
+  await js(`document.querySelector('#waiting .bubble.waiting').click(); true`);
+  check("tapping one throws it away", await until(`document.querySelectorAll('#waiting .bubble.waiting').length === 1
+    && document.querySelector('#waiting .bubble.waiting').textContent.includes("second while it was off")`, 4000));
+
   const closed = await js("home.source.readyState");
   console.log(`      (live stream state while the server is down: ${["connecting", "open", "closed"][closed]})`);
 
@@ -265,6 +290,13 @@ try {
   const t1 = Date.now();
   check("page reconnects by itself, no app switch needed", await until("home.online === true", 45000), `${((Date.now() - t1) / 1000).toFixed(1)} s after the server came back`);
   check("offline note gone once back", await until(`document.querySelector("#offline-notes").textContent.trim() === ""`, 5000));
+  check("what waited is sent by itself once the computer is back", await until(`document.querySelectorAll('#waiting .bubble.waiting').length === 0`, 20000)
+    && !(await js(`localStorage.queued`)));
+  const saidBy = async () => ((await req("GET", `/api/chats/${c.id}/messages`)).json || []).filter((m) => m.role === "user").map((m) => m.text);
+  let said = [];
+  for (let i = 0; i < 40; i++) { said = await saidBy(); if (said.some((s) => s.includes("second while it was off"))) break; await sleep(500); }
+  check("…and the computer really got it", said.some((s) => s.includes("second while it was off")), JSON.stringify(said).slice(0, 200));
+  check("…while the one you threw away stayed away", !said.some((s) => s.includes("first while it was off")));
   await shot("list-back-online");
 
   // the computer drops off the network without a word (what the Mac did at 19:43)
