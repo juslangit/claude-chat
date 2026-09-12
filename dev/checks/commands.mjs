@@ -77,6 +77,10 @@ try {
   check("…and isn't waiting for an answer", usage?.asks === false);
   check("…with none of the Terminal's own furniture, and no wasted margin",
     !/^[▔▝▘▗▖█─\s]/.test(usage?.text || "x") && !/^[▔▁─━═▬█]+$/m.test(usage?.text || "x"), JSON.stringify((usage?.text || "").slice(0, 60)));
+  check("…keeping the bar line the panel drew", /\d{1,3}% used/.test(usage?.text || "") && /[█▓▒░]/.test(usage?.text || ""), JSON.stringify((usage?.text || "").split("\n").find((l) => /% used/.test(l)) || ""));
+  const meters = usage?.meters || [];
+  check("…and carrying meters the phone can draw", meters.length >= 1 && meters.every((x) => x.label && x.percent >= 0 && x.percent <= 100), JSON.stringify(meters).slice(0, 200));
+  check("…one of them the session, with when it resets", meters.some((x) => /session/i.test(x.label) && /resets/i.test(x.note || "")), JSON.stringify(meters.map((x) => [x.label, x.note])).slice(0, 200));
   check("the panel was closed afterwards, so the chat still works", /❯/.test(await screen()));
 
   const stat = (await command("/status")).json;
@@ -175,6 +179,11 @@ try {
 
   await tap("/usage");
   check("tapping /usage puts a card in the chat", await until(`[...document.querySelectorAll("#messages .bubble.command b")].some((b) => b.textContent === "/usage")`, 30000));
+  check("…with a bar you can read at a glance", await until(`(() => {
+    const card = [...document.querySelectorAll("#messages .bubble.command")].find((x) => x.querySelector("b")?.textContent === "/usage");
+    const fill = card?.querySelector(".meter .context-line i");
+    return !!fill && parseFloat(fill.style.width) > 0 && /%/.test(card.querySelector(".meter-top b").textContent);
+  })()`, 20000));
   check("the sheet closed itself", await js(`document.querySelector("#commands").hidden`));
   await shot("command-card");
 

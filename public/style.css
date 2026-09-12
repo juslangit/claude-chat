@@ -629,3 +629,14 @@ body:has(#row-menu:not([hidden])) .toast { display: none; } /* the hold menu is 
 /* after switching computer in Settings: where you are, and how to add this computer's own icon */
 .link-hint { margin-bottom: 14px; }
 .link-hint .link { display: block; margin: 8px 0 0 auto; font-weight: 600; }
+
+/* meters inside a command card (/usage): the same bar as the one that shows how full a chat is */
+.meters { display: flex; flex-direction: column; gap: 11px; margin-top: 11px; }
+.meter-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-size: .84rem; }
+.meter-top b { font-variant-numeric: tabular-nums; }
+.meter .context-line { margin-top: 5px; }
+.meter small { display: block; margin-top: 4px; color: var(--muted); font-size: .72rem; }
+.meter.warm .context-line i { background: var(--accent); }
+.meter.warm .meter-top b { color: var(--accent-text); }
+.meter.hot .context-line i { background: var(--danger); }
+.meter.hot .meter-top b { color: var(--danger); }

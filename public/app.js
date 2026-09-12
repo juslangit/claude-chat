@@ -787,9 +787,11 @@ function addMessage(box, m) {
     return;
   }
   if (m.role === "command") {
-    // One of Claude Code's own commands, and what the Terminal showed for it.
+    // One of Claude Code's own commands, and what the Terminal showed for it. Meters in it ("95% used")
+    // are drawn as bars too: a wall of block characters doesn't read on a phone.
     box.append(el("div", "bubble in command",
       `<div class="command-top">${ICON.command}<b>${esc(m.command)}</b>${m.asks ? `<span class="command-asks">needs your answer</span>` : ""}</div>
+       ${meterHtml(m.meters)}
        <pre>${esc(m.text)}</pre>
        ${m.asks ? `<button class="command-screen">Answer it on the screen</button>` : ""}`));
     group.side = null;
@@ -872,6 +874,18 @@ $("#messages").addEventListener("click", (e) => {
   if (e.target.closest(".command-screen")) { openSheet("#screen"); return pollScreen(); }
   e.target.closest(".tools")?.classList.toggle("open");
 });
+
+// "Current session · 95%", as a bar you can read at a glance: teal, orange past 60%, red past 85% — the
+// same bar as the one that shows how full a chat is.
+function meterHtml(meters) {
+  if (!meters?.length) return "";
+  return `<div class="meters">${meters.map((x) => `
+    <div class="meter${x.percent >= 85 ? " hot" : x.percent >= 60 ? " warm" : ""}">
+      <div class="meter-top"><span>${esc(x.label)}</span><b>${x.percent}%</b></div>
+      <span class="context-line"><i style="width: ${x.percent}%"></i></span>
+      ${x.note ? `<small>${esc(x.note)}</small>` : ""}
+    </div>`).join("")}</div>`;
+}
 
 // Just enough Markdown for Claude's replies: code blocks, `code`, **bold**, headings, links.
 function md(src) {
