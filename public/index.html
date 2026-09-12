@@ -152,6 +152,8 @@
 
     <main id="scroller" class="scroller">
       <div id="messages" class="messages"></div>
+      <!-- messages typed while the computer was off: they go by themselves when it answers again -->
+      <div id="waiting" class="messages" hidden></div>
       <!-- "typing…", plus what Claude is doing: its latest note and latest step -->
       <div id="typing" class="bubble in typing" hidden><div class="dots"><i></i><i></i><i></i></div><div id="doing" class="doing" hidden></div></div>
     </main>

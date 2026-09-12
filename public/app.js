@@ -66,6 +66,12 @@ function previewOf(last) {
 function read(key, fallback) { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } }
 function write(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch {} }
 function forget(key) { try { localStorage.removeItem(key); } catch {} }
+
+// Messages typed while a computer was off, waiting for it to come back: chat key → [{ id, text, at }].
+// They live on this phone (the computer they belong to is asleep, so it can't hold them).
+const queued = read("queued", {});
+const waitingFor = (key) => queued[key] || [];
+const saveQueue = () => { if (Object.keys(queued).length) write("queued", queued); else forget("queued"); };
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
 // Small drawings that get used in more than one place.
@@ -73,6 +79,7 @@ const ICON = {
   ticks: `<svg class="ticks" width="17" height="11" viewBox="0 0 17 11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1 5.8l3 3L10.6 2.2M7 7.8l1 1 6.6-6.6"/></svg>`,
   steps: `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3l4 4-4 4M8 11h4"/></svg>`,
   chevron: `<svg class="chev" width="8" height="12" viewBox="0 0 8 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 2l4 4-4 4"/></svg>`,
+  clock: `<svg class="waiting-mark" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5.5l3.5 2"/></svg>`,
   mic: `<svg class="voice" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>`,
   phone: `<svg class="voice" viewBox="0 0 24 24" fill="currentColor"><path d="M5 3.5h3.2l1.6 4-2.1 1.5a11 11 0 0 0 7.3 7.3l1.5-2.1 4 1.6V19a1.8 1.8 0 0 1-1.9 1.8C10.3 20.3 3.7 13.7 3.2 5.4A1.8 1.8 0 0 1 5 3.5z"/></svg>`,
   pin: `<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M14.5 2.5l7 7-2.3.9-3.6 3.6.6 4.6-1.6 1.6-4.2-4.2L5 21.4 3.6 20l5.4-5.4-4.2-4.2 1.6-1.6 4.6.6 3.6-3.6z"/></svg>`,
@@ -122,7 +129,7 @@ function connect(comp) {
   comp.source?.close();
   const src = (comp.source = new EventSource(`${comp.base}/events`));
   comp.heard = Date.now();
-  src.onopen = () => { comp.heard = Date.now(); comp.tries = 0; setComputerOnline(comp, true); if (comp === home) checkVersion(); refreshComputer(comp); };
+  src.onopen = () => { comp.heard = Date.now(); comp.tries = 0; setComputerOnline(comp, true); if (comp === home) checkVersion(); refreshComputer(comp).then(() => flushQueue(comp)); };
   src.onerror = () => {
     setComputerOnline(comp, false);
     // Safari gives up for good when the computer answers with an error — tailscale serve does, while
@@ -502,6 +509,9 @@ function rowHtml(c) {
     badge = `<span class="badge warn">!</span>`;
   } else if (isWorking(c)) {
     preview = `<span class="typing-text">${STATUS[c.status]}</span>`;
+  } else if (waitingFor(c.key).length) {
+    const n = waitingFor(c.key).length;
+    preview = `<span class="muted">${ICON.clock} ${n > 1 ? `${n} messages waiting to send` : "Waiting to send"}</span>`;
   } else {
     const text = plain(previewOf(c.lastText));
     // Your own last message gets ticks instead of "You:", the way WhatsApp shows it.
@@ -567,6 +577,7 @@ function route() {
   clearTimeout(route.hint);
   route.hint = setTimeout(renderChatChrome, 3100);
   $("#messages").innerHTML = "";
+  renderWaiting();
   resetGroups();
   input.value = state.drafts[id] || "";
   grow();
@@ -839,6 +850,30 @@ function addMessage(box, m) {
   group.tools = null;
 }
 
+// Messages still waiting for their computer sit under the conversation, greyed out with a clock.
+// Tapping one offers to throw it away.
+function renderWaiting() {
+  const box = $("#waiting");
+  if (!box) return;
+  const list = waitingFor(state.current);
+  box.innerHTML = list.map((item) => {
+    const said = splitVoice(item.text);
+    const shown = splitPhoto(splitReply(said.text).text).text;
+    return `<div class="bubble out waiting" data-waiting="${item.id}">${esc(shown)}
+      <span class="spacer wide"></span><span class="stamp">${clock(item.at)}${ICON.clock}</span></div>`;
+  }).join("");
+  box.hidden = !list.length;
+}
+$("#waiting").addEventListener("click", (e) => {
+  const id = e.target.closest("[data-waiting]")?.dataset.waiting;
+  if (!id || !confirm("Throw this message away?\n\nIt hasn't been sent yet — it's waiting for that computer to come back.")) return;
+  queued[state.current] = waitingFor(state.current).filter((x) => x.id !== id);
+  if (!queued[state.current].length) delete queued[state.current];
+  saveQueue();
+  renderWaiting();
+  renderList();
+});
+
 // Grey ticks = your message reached Claude. Blue = Claude has answered or is working on it.
 function updateTicks() {
   let answered = false;
@@ -935,10 +970,11 @@ async function send() {
   $("#send").disabled = true;
   $("#send").classList.add("busy");
   try {
-    await sendMessage(text);
+    const r = await sendMessage(text);
     input.value = "";
     grow();
     saveDraft();
+    if (r?.queued) toast(`${compOf(cur())?.name || "That computer"} is off — it'll go when it's back`);
   } catch (e) {
     toast(e.message);
   } finally {
@@ -1214,7 +1250,56 @@ function sendMessage(text, key = state.current) {
   // A swipe-to-reply goes in front, quoting the message you're answering, so Claude knows which one.
   const quoting = key === state.current ? replyTo : null;
   const full = quoting ? `Replying to ${quoting.who === "claude" ? "your" : "my"} message: "${quoting.text}"\n\n${text}` : text;
-  return chatApi(c, "/send", { body: { text: full } }).then((r) => { if (quoting && replyTo === quoting) setReply(null); return r; });
+  const done = (r) => { if (quoting && replyTo === quoting) setReply(null); return r; };
+  // That computer is asleep or off the network: keep the message here and send it when it answers again.
+  if (!compOf(c).online) return Promise.resolve(done(hold(key, full)));
+  return chatApi(c, "/send", { body: { text: full } })
+    .then(done)
+    .catch((e) => {
+      if (!offlineError(e)) throw e; // a real refusal (chat stopped, waiting for your OK) still says so
+      setComputerOnline(compOf(c), false);
+      return done(hold(key, full));
+    });
+}
+
+// Couldn't reach the computer at all, as opposed to it saying no.
+const offlineError = (e) => e instanceof TypeError || /Failed to fetch|Load failed|NetworkError|timed? out|aborted/i.test(e?.message || "");
+
+// Put a message in the queue for later, and show it straight away with a clock on it.
+function hold(key, text) {
+  (queued[key] ||= []).push({ id: crypto.randomUUID(), text, at: Date.now() });
+  saveQueue();
+  renderWaiting();
+  renderList();
+  return { queued: true };
+}
+
+// Everything waiting for one computer, oldest first, sent as soon as it answers again. A message the
+// computer refuses (its chat was deleted, say) is dropped and said out loud rather than tried forever.
+let flushing = false;
+async function flushQueue(comp) {
+  if (flushing) return;
+  flushing = true;
+  try {
+    for (const key of Object.keys(queued)) {
+      const c = state.chats.get(key);
+      if (!c || c.comp !== comp.id || !comp.online) continue;
+      while (waitingFor(key).length) {
+        const item = queued[key][0];
+        try {
+          await chatApi(c, "/send", { body: { text: item.text } });
+        } catch (e) {
+          if (offlineError(e)) return; // still away: leave the rest for next time
+          toast(`${c.name}: ${e.message}`);
+        }
+        queued[key] = waitingFor(key).filter((x) => x.id !== item.id);
+        if (!queued[key].length) delete queued[key];
+        saveQueue();
+        renderWaiting();
+        renderList();
+      }
+    }
+  } finally { flushing = false; }
 }
 
 // One-tap replies, shown while Claude is waiting for you and the typing box is empty.
