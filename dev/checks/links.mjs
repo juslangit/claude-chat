@@ -174,8 +174,27 @@ try {
   await js(`document.querySelector('#profile-computers .chip.on').click(); true`);
   await sleep(500);
   check("tapping this computer's own button stays put", await js(`state.computers.some((c) => c.id === "other-4479")`));
-  await js(`window.stillHere = true; document.querySelector('#profile-computers .chip:not(.on)').click(); true`);
-  check("tapping the other computer opens its own link, on Settings", await until(`!window.stillHere && location.hash === "#settings" && !document.querySelector("#settings-view").hidden`, 10000));
+
+  // In the Home Screen app there is no other app iOS will open, so switching happens here, in place.
+  await js(`window.inHomeScreenApp = () => true; window.stillHere = true; document.querySelector('#profile-computers .chip:not(.on)').click(); true`);
+  check("in the Home Screen app it switches without leaving", await until(`document.querySelector("#profile-computers .chip.on")?.dataset.comp === "other-4479"`, 8000)
+    && await js(`window.stillHere === true && location.search === ""`));
+  check("…and the account screen is that computer's", await js(`accountOn.id === "other-4479"`));
+  await shot("1b-switched-in-app");
+  await js(`go("chats"); true`);
+  await sleep(300);
+  await js(`go("settings"); true`);
+  check("…and it's still that computer when you come back to Settings", await until(`accountOn.id === "other-4479"`, 5000));
+  await js(`document.querySelector('#profile-btn').click(); true`);
+  await until(`document.querySelectorAll("#profile-computers .chip").length === 2`, 8000);
+  const chipsNow = await js(`[...document.querySelectorAll("#profile-computers .chip")].map((c) => c.dataset.comp + (c.classList.contains("on") ? " (on)" : "")).join(", ") + " | accountOn=" + accountOn.id`);
+  await js(`[...document.querySelectorAll('#profile-computers .chip')].find((c) => c.dataset.comp === "home").click(); true`);
+  check("…tapping this computer again comes back", await until(`accountOn.id === "home" && document.querySelector("#profile-computers .chip.on")?.dataset.comp === "home"`, 8000), chipsNow);
+
+  // In Safari there is no icon to go back to, so it opens that computer's own link instead.
+  await js(`window.inHomeScreenApp = () => false; window.stillHere = true;
+    [...document.querySelectorAll('#profile-computers .chip')].find((c) => c.dataset.comp === "other-4479").click(); true`);
+  check("in Safari it opens the other computer's own link, on Settings", await until(`!window.stillHere && location.hash === "#settings" && !document.querySelector("#settings-view").hidden`, 10000));
   check("…the address is tidied, so it can be saved as an icon", await until(`location.search === ""`, 8000));
   check("…and it says where you are and how to add its icon", await until(`!document.querySelector("#link-hint").hidden`, 8000)
     && await js(`document.querySelector("#link-hint-title").textContent.includes("Test (4479)") && document.querySelector("#link-hint-text").textContent.includes(${JSON.stringify(icon)})`));
