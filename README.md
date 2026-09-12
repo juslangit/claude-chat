@@ -150,6 +150,7 @@ The server's log (see [Mac and Windows side by side](#mac-and-windows-side-by-si
 | See how full a chat is, and free it up | The line under the chat's name, once it's half full. Tap it to compact — Claude keeps a summary and lets go of the rest |
 | Rename a chat, end it, or open its window on the computer | Tap the chat's name at the top (Chat info) → **Open on Mac** / **Open on PC** |
 | Talk instead of typing | Hold 🎤, talk, let go. Slide left to cancel |
+| Send to a computer that's off | Just send it — it waits on the phone with a clock, and goes by itself when that computer is back. Tap it to throw it away |
 | Have a voice call with Claude | Tap 📞 at the top of the chat; the red button hangs up |
 | Send a common reply in one tap | The buttons above the typing bar ("Yes, go ahead", "Explain simpler"…) |
 | Turn the reply sound off | ⋯ on the Chats screen → Reply sound |
