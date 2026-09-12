@@ -158,7 +158,8 @@ The server's log (see [Mac and Windows side by side](#mac-and-windows-side-by-si
 | Get a render, screenshot or file **from** Claude | Ask for it. Claude runs `cchat send <file> "caption"` and it appears in the chat; just naming a file's path in its reply shows it too |
 | Reply to one particular message | Swipe it to the right — it's quoted above the typing box |
 | Pin, archive, rename or delete chats | Hold a chat in the list for its menu. Archived chats sit behind the **Archived** row at the top and stop notifying you; **Delete** stops Claude and removes the conversation and its photos. Pins and unread counts are kept on the computers, so every link shows the same |
-| Go to another computer's own app | ⚙ Settings → your face (top right) → tap that computer. The first time, add its page to your Home Screen — it's called **Claude PC** or **Claude Mac** |
+| Change another computer's Claude account | ⚙ Settings → your face (top right) → tap that computer. In the Home Screen app it switches there and back without leaving; in Safari it opens that computer's own link |
+| Open the other computer's app | Press Home and tap its icon (**Claude Mac** / **Claude PC**). iOS gives a web app no way to open another one |
 | Clear out everything that has stopped | ⚙ Settings → **Delete stopped chats** (it says how many and asks first) |
 | Find something in a chat | Chat info → **Search**; the arrows jump between matches |
 | Switch between two Claude accounts (e.g. Pro and Max) | ⚙ Settings → the round button at the top right. Adding a second account is done from the phone too |
