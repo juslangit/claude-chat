@@ -568,7 +568,8 @@ function route() {
     renderList(); // which also refreshes Home
     renderComputers();
     if (tab === "computers") { $("#add-box").hidden = true; findComputers(); }
-    if (tab === "settings") { accountOn = home; loadProfile(); } // so the face on the bar is the account in use
+    // Settings stays on the computer you last chose; if that one has gone off, it comes back to this one.
+    if (tab === "settings") { if (!accountOn?.online) accountOn = home; loadProfile(); }
     return;
   }
   state.lastStep = null; // the progress bubble only ever shows this chat's steps
@@ -2181,7 +2182,7 @@ function renderProfile() {
   const online = state.computers.filter((c) => c.online);
   $("#profile-computers").hidden = online.length < 2;
   $("#profile-computers").innerHTML = online.map((c) =>
-    `<button class="chip${c === home ? " on" : ""}" data-comp="${c.id}">${esc(c.name || "This computer")}</button>`).join("");
+    `<button class="chip${c === accountOn ? " on" : ""}" data-comp="${c.id}">${esc(c.name || "This computer")}</button>`).join("");
 
   const me = d.accounts.find((a) => a.id === d.current) || d.accounts[0];
   // The face on the Settings bar is the account in use, so a glance says which one you're on.
@@ -2204,7 +2205,7 @@ function renderProfile() {
 
   $("#profile-note").textContent = online.length < 2
     ? "New chats run on the account with the tick. Chats already going keep the account they started on."
-    : `New chats on ${accountOn.name || "this computer"} run on the account with the tick. Each computer chooses its own; tap another one to open its own app.`;
+    : `New chats on ${accountOn.name || "this computer"} run on the account with the tick. Each computer chooses its own; tap another one to change it here.`;
   // While an account is being added, the form has the sheet to itself.
   const busy = !$("#profile-login").hidden;
   $("#profile-add").hidden = busy;
@@ -2216,21 +2217,34 @@ const closeAddForm = () => { $("#profile-login").hidden = true; renderProfile();
 
 // Each computer's own link is its own app, with its own Home Screen icon. Picking another computer here
 // goes to its link, on its Settings — the account screen there is that computer's.
+// Tapping another computer shows that computer's Claude account here. iOS gives a Home Screen app no way
+// to open another Home Screen app — it would only open the page in a browser on top — so in the app it
+// switches in place. In Safari, where there's no icon to go back to, it opens that computer's own link.
 $("#profile-computers").addEventListener("click", (e) => {
   const comp = state.computers.find((c) => c.id === e.target.closest(".chip")?.dataset.comp);
-  if (!comp || comp === home || !comp.base) return;
-  saveDraft();
-  location.href = `${comp.base}/?from=${encodeURIComponent(home.name || "")}#settings`;
+  if (!comp || comp === accountOn || !comp.base) return;
+  if (!inHomeScreenApp()) {
+    saveDraft();
+    location.href = `${comp.base}/?from=${encodeURIComponent(home.name || "")}#settings`;
+    return;
+  }
+  accountOn = comp;
+  closeAddForm();
+  loadProfile();
 });
 
 // Arriving from another computer's Settings (…/?from=<its name>#settings): say where you are and, the
 // first time outside the Home Screen app, how to give this computer's link its own icon.
+// The Home Screen app, as opposed to the same page open in Safari.
+function inHomeScreenApp() {
+  return navigator.standalone === true || matchMedia("(display-mode: standalone)").matches;
+}
+
 function arrived() {
   if (!new URLSearchParams(location.search).has("from")) return;
   history.replaceState(null, "", location.pathname + location.hash); // tidy the address before it becomes an icon
   const where = home.name || "this computer";
-  const standalone = navigator.standalone === true || matchMedia("(display-mode: standalone)").matches;
-  if (standalone || read("iconHint", false)) return toast(`You're on ${where}`);
+  if (inHomeScreenApp() || read("iconHint", false)) return toast(`You're on ${where}`);
   const icon = document.querySelector('meta[name="apple-mobile-web-app-title"]')?.content || "Claude";
   $("#link-hint-title").textContent = `You're on ${where}'s own app`;
   $("#link-hint-text").textContent = `To give it its own icon, called ${icon}: tap Share, then Add to Home Screen. If it opened on top of your other app, tap the Safari button first.`;
