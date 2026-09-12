@@ -422,8 +422,8 @@ function filesNamedIn(id, text) {
 }
 
 // What one of Claude Code's own commands showed, as a card in the chat.
-function pushCommand(id, command, text, asks) {
-  const m = { id: crypto.randomUUID(), role: "command", command, text, asks, at: Date.now() };
+function pushCommand(id, command, text, asks, meters = []) {
+  const m = { id: crypto.randomUUID(), role: "command", command, text, asks, ...(meters.length && { meters }), at: Date.now() };
   rt(id).messages.push(m);
   broadcast({ type: "messages", chatId: id, messages: [m] });
   return m;
@@ -794,7 +794,8 @@ async function runCommand(c, command) {
     await sleep(400);
     if (boxIn((await capture()).join("\n")) == null) await tmux("send-keys", "-t", c.tmux, "Escape");
   }
-  return pushCommand(c.id, command, text || "Done.", asks);
+  const said = text || "Done.";
+  return pushCommand(c.id, command, said, asks, metersFrom(said));
 }
 
 // What the screen gained: whatever was above stays put, so skip the lines that didn't change, and leave
@@ -802,17 +803,33 @@ async function runCommand(c, command) {
 // the top and its drawn rules), which is just noise in a chat.
 const FRAME_LINE = /^[\s▔▁─━═▬▂▃▄▅▆▇█▀]+$/;
 const LOGO_LINE = /^\s*[▝▘▗▖▛▜▙▟█]/;
+// A meter in one of Claude Code's panels: "███████████▌   95% used". It starts with block characters,
+// like the logo does, so it has to be spared — and the number is pulled out for the phone to draw.
+const METER_LINE = /^\s*([█▉▊▋▌▍▎▏▓▒░]{3,})\s+(\d{1,3})%(.*)$/;
 function newOnScreen(before, after) {
   let i = 0;
   while (i < after.length && i < before.length && after[i] === before[i]) i++;
   const lines = after.slice(i).map((l) => l.trimEnd());
   const rule = lines.findIndex((l) => /^\s*─{10,}/.test(l));
-  const kept = (rule >= 0 ? lines.slice(0, rule) : lines).filter((l) => !FRAME_LINE.test(l) && !LOGO_LINE.test(l));
+  const kept = (rule >= 0 ? lines.slice(0, rule) : lines).filter((l) => METER_LINE.test(l) || (!FRAME_LINE.test(l) && !LOGO_LINE.test(l)));
   while (kept.length && !kept[0].trim()) kept.shift();
   while (kept.length && !kept.at(-1).trim()) kept.pop();
   // Panels are drawn a few columns in from the edge; a narrow phone wants that space back.
   const indent = Math.min(...kept.filter((l) => l.trim()).map((l) => l.match(/^ */)[0].length), 20);
   return kept.slice(-60).map((l) => l.slice(indent)).join("\n").slice(0, 4000);
+}
+
+// The meters in a panel, for the phone to draw as bars: the line above a meter is its name ("Current
+// session"), and a "Resets …" line under it is when it starts again.
+function metersFrom(text) {
+  const lines = text.split("\n");
+  return lines.flatMap((line, i) => {
+    const m = line.match(METER_LINE);
+    if (!m) return [];
+    const label = [...lines.slice(0, i)].reverse().find((l) => l.trim() && !METER_LINE.test(l)) || "";
+    const note = (lines[i + 1] || "").trim();
+    return [{ label: label.trim().slice(0, 60), percent: Math.min(100, Number(m[2])), note: /^resets/i.test(note) ? note.slice(0, 80) : "" }];
+  }).slice(0, 6);
 }
 
 // Commands you've written yourself: yours in ~/.claude/commands, plus any in this chat's project.
