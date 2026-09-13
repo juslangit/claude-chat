@@ -112,9 +112,11 @@ try {
   check("…and that one is fetchable too", said?.files?.[0] && (await req("GET", `/api/chats/${c.id}/files/${said.files[0].token}`)).status === 200);
 
   // the way Claude usually writes it: a path relative to the folder the chat is in
-  fs.mkdirSync(path.join(process.env.HOME, "Desktop/project/claude-chat/dev/checks/.work/t-files"), { recursive: true });
-  fs.copyFileSync(RENDER, path.join(process.env.HOME, "Desktop/project/claude-chat/dev/checks/.work/t-files/relative.png"));
-  fs.appendFileSync(transcript, `${line("Put the new one in claude-chat/dev/checks/.work/t-files/relative.png — have a look.")}\n`);
+  // (relative to the project folder, wherever claude-chat sits in it: "claude-chat" or "ai/claude-chat")
+  const relative = path.join(path.relative(path.join(process.env.HOME, "Desktop/project"), APP), "dev/checks/.work/t-files/relative.png");
+  fs.mkdirSync(path.join(APP, "dev/checks/.work/t-files"), { recursive: true });
+  fs.copyFileSync(RENDER, path.join(APP, "dev/checks/.work/t-files/relative.png"));
+  fs.appendFileSync(transcript, `${line(`Put the new one in ${relative} — have a look.`)}\n`);
   await sleep(1500);
   said = (await messages()).filter((m) => m.role === "assistant").at(-1);
   check("a path relative to the chat's folder is picked up too", said?.files?.[0]?.name === "relative.png", JSON.stringify(said?.files || []).slice(0, 80));

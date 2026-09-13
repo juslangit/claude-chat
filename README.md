@@ -131,6 +131,7 @@ This only happens once.
 2. Tap **Share → Add to Home Screen**. From now on, open it from your Home Screen — it's called **Claude Mac** or **Claude PC**, after the computer.
 3. Tap **+**, choose **Whole project folder**, and ask Claude for something — "make me a small web page
    about cats" is a good first try. The new project appears in `Desktop/project` on your computer.
+   You can sort projects into subject folders there (`game/`, `web/`…) and New chat lists them as `game/my-game`.
 
 That's it. Two optional extras: [notifications](#notifications) and
 [more than one computer](#more-than-one-computer).
@@ -178,7 +179,7 @@ Running chats are not affected by restarting the server — they live in tmux.
 | Project folder | `~/Desktop/project` | `Desktop\project` (or `%USERPROFILE%\project` if the Desktop is kept in OneDrive) |
 | Where `cchat` works | any Terminal window | the **Ubuntu** window (Start menu → Ubuntu) |
 | Starts by itself at login | a LaunchAgent (`com.juslangit.claude-chat`) | a Task Scheduler task called `claude-chat` |
-| The server's log | `~/Desktop/project/claude-chat/data/server.log` | `~/.claude-chat/data/server.log`, in the Ubuntu window |
+| The server's log | `data/server.log` in your claude-chat folder (`~/Desktop/project/claude-chat`) | `~/.claude-chat/data/server.log`, in the Ubuntu window |
 | Restart the server after changing code | `launchctl kickstart -k gui/$(id -u)/com.juslangit.claude-chat` | `pkill -f "node server.mjs"` in the Ubuntu window — it comes back by itself in a couple of seconds |
 
 ## Permissions and memory
@@ -242,7 +243,7 @@ are shared (the list is in `~/.claude/.stignore`); chat history stays on each co
 
 **Update** to the newest claude-chat:
 
-- Mac, in Terminal: `cd ~/Desktop/project/claude-chat && git pull && ./install.sh`
+- Mac, in Terminal: `cd ~/Desktop/project/claude-chat && git pull && ./install.sh` (use `ai/claude-chat` or wherever you moved it if you sort projects into subject folders)
 - Windows, in the Ubuntu window: `cd ~/Desktop/project/claude-chat && git pull && pkill -f "node server.mjs"`
 
 An open phone app notices and reloads itself.
