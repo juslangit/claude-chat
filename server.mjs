@@ -230,7 +230,7 @@ function summary(c) {
   return {
     id: c.id, name: c.name, createdAt: c.createdAt, alive: r.alive, archived: !!c.archived,
     pinnedAt: c.pinnedAt || null, seen: c.seen || 0, // kept here, so every link and phone shows the same
-    project: c.cwd && c.cwd !== WORKDIR ? path.basename(c.cwd) : null,
+    project: c.cwd && c.cwd !== WORKDIR ? projectName(c.cwd) : null,
     status: r.alive ? r.status : "ended",
     lastText: r.lastText, lastAt: r.lastAt || c.createdAt, count: r.count,
     note: r.status === "working" || r.status === "approval" ? r.note || null : null, // Claude's latest progress note
@@ -567,20 +567,34 @@ async function openTerminal(c) {
   await run("/usr/bin/open", ["-a", "Terminal", file]);
 }
 
-// The folders in the project folder, most recently changed first. The phone's "New chat" lists
-// them the way WhatsApp lists contacts.
+// The projects in the project folder, most recently changed first. The phone's "New chat" lists
+// them the way WhatsApp lists contacts. Projects can be sorted into subject folders ("game",
+// "3d"…): those are opened up and their projects listed as "game/referee-for-fun".
 function listProjects() {
   const changed = (p) => { try { return fs.statSync(p).mtimeMs; } catch { return 0; } };
-  return fs.readdirSync(WORKDIR, { withFileTypes: true })
-    .filter((d) => d.isDirectory() && !d.name.startsWith("."))
-    .map((d) => {
-      const dir = path.join(WORKDIR, d.name);
-      let latest = changed(dir);
-      for (const f of fs.readdirSync(dir)) latest = Math.max(latest, changed(path.join(dir, f)));
-      return { name: d.name, changedAt: latest, remote: gitRemote(dir) };
-    })
+  const folders = (dir) => fs.readdirSync(dir, { withFileTypes: true }).filter((d) => d.isDirectory() && !d.name.startsWith("."));
+  const project = (name) => {
+    const dir = path.join(WORKDIR, name);
+    let latest = changed(dir);
+    for (const f of fs.readdirSync(dir)) latest = Math.max(latest, changed(path.join(dir, f)));
+    return { name, changedAt: latest, remote: gitRemote(dir) };
+  };
+  return folders(WORKDIR)
+    .flatMap((d) => isSubject(path.join(WORKDIR, d.name))
+      ? folders(path.join(WORKDIR, d.name)).map((p) => project(`${d.name}/${p.name}`))
+      : [project(d.name)])
     .sort((a, b) => b.changedAt - a.changedAt);
 }
+
+// A subject folder only holds other folders: no git, no files of its own. An empty folder is a
+// brand-new project, not a subject.
+function isSubject(dir) {
+  const items = fs.readdirSync(dir, { withFileTypes: true }).filter((d) => !d.name.startsWith("."));
+  return !fs.existsSync(path.join(dir, ".git")) && items.length > 0 && items.every((d) => d.isDirectory());
+}
+
+// "referee-for-fun" or "game/referee-for-fun" for a folder in the project folder, as the phone knows it.
+const projectName = (cwd) => path.relative(WORKDIR, cwd);
 
 // A project's GitHub address, read from its .git/config (null if it has none). Setup scripts on a
 // new computer use it to copy every project across.
@@ -656,12 +670,11 @@ async function pairSync({ id, name, code } = {}) {
   return { id: (await run(SYNCTHING, ["device-id"])).stdout.trim(), folder: "claude-home" };
 }
 
-// A project name from the phone → its folder. Only folders directly inside WORKDIR are allowed.
+// A project name from the phone → its folder. Only projects the New chat list shows are allowed.
 function projectDir(name) {
   if (!name) return WORKDIR;
-  const dir = path.join(WORKDIR, String(name));
-  if (path.dirname(dir) !== WORKDIR || !fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) throw fail("That project folder doesn't exist.");
-  return dir;
+  if (!listProjects().some((p) => p.name === String(name))) throw fail("That project folder doesn't exist.");
+  return path.join(WORKDIR, String(name));
 }
 
 // Before Claude starts in a project, get the newest version from GitHub, so work saved on another

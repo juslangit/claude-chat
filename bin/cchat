@@ -27,7 +27,13 @@ if [ "$1" = send ]; then
   exit 0
 fi
 proj=""
-if [[ $PWD == "$ROOT"/* ]]; then rel=${PWD#"$ROOT"/}; proj=${rel%%/*}; fi
+if [[ $PWD == "$ROOT"/* ]]; then
+  rel=${PWD#"$ROOT"/}; proj=${rel%%/*}
+  # Inside a subject folder ("game", "3d"…: only folders, no git) the project is one level further in.
+  if [[ ! -d "$ROOT/$proj/.git" && -n $(find "$ROOT/$proj" -mindepth 1 -maxdepth 1 ! -name '.*' -print -quit) && -z $(find "$ROOT/$proj" -mindepth 1 -maxdepth 1 ! -name '.*' ! -type d -print -quit) ]]; then
+    if [[ $rel == */* ]]; then rest=${rel#*/}; proj=$proj/${rest%%/*}; else proj=""; fi
+  fi
+fi
 resp=$(curl -sf -X POST "http://127.0.0.1:$PORT/api/chats" -H 'content-type: application/json' \
   -d "$(jq -n --arg n "$*" --arg p "$proj" '{name: $n, terminal: false, project: (if $p == "" then null else $p end)}')") || {
   echo "The claude-chat server isn't running on this computer."
