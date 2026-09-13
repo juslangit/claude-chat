@@ -205,7 +205,7 @@ exit 0
 case "$*" in
   *claude.ai/install.sh*) echo 'echo "(pretend) Claude Code installed"' ;;
   */api/whoami*) echo '{"name":"Main"}' ;;
-  */api/projects*) echo '[{"name":"claude-chat","remote":"${REPO}"},{"name":"My Game","remote":"https://github.com/someone/my-game.git"},{"name":"notes","remote":null}]' ;;
+  */api/projects*) echo '[{"name":"ai/claude-chat","remote":"${REPO}"},{"name":"My Game","remote":"https://github.com/someone/my-game.git"},{"name":"game/racer","remote":"https://github.com/someone/racer.git"},{"name":"notes","remote":null}]' ;;
 esac
 `);
   // git clone copies in just enough of claude-chat for its own install.sh to run.
@@ -261,6 +261,9 @@ exit 0
   check("…copies every project that has a GitHub address, spaces and all",
     r.calls.includes(`git clone -q ${REPO} ${path.join(joinHome, "Desktop/project/claude-chat")}`) &&
     r.calls.includes(`git clone -q https://github.com/someone/my-game.git ${path.join(joinHome, "Desktop/project/My Game")}`) && !r.calls.includes("/notes"));
+  check("…keeps subject folders for projects, but not a second copy of claude-chat",
+    r.calls.includes(`git clone -q https://github.com/someone/racer.git ${path.join(joinHome, "Desktop/project/game/racer")}`) &&
+    !r.calls.includes(path.join(joinHome, "Desktop/project/ai/claude-chat")) && r.calls.split(`git clone -q ${REPO} `).length === 2);
   check("…and says it now shows on the iPhone", r.out.includes("now shows on your iPhone") && r.out.includes("Already paired"));
   fs.writeFileSync(path.join(SHIMS, "syncthing-state/folders"), "");
 
@@ -278,6 +281,15 @@ exit 0
   check("…writes the start-at-login script for that folder", read(path.join(pcHome, ".claude-chat/start.sh")).includes(`CLAUDE_CHAT_WORKDIR="${pcProjects}"`));
   check("…and gets Syncthing ready for a second computer", read(path.join(pcWork, "sync-id.txt")).startsWith("NEWIDAA") && r.out.includes("When you add another computer"));
   r = runIn(path.join(BOX, "pc-join"), path.join(APP, "setup/wsl.sh"), ["install", pcProjects, pcWork, "TEST-PC"]);
+  const pcSorted = path.join(BOX, "pc-sorted/Desktop/project");
+  fs.mkdirSync(pcSorted, { recursive: true });
+  fs.writeFileSync(path.join(pcWork, "projects.txt"), `ai/claude-chat\t${REPO}\r\ngame/racer\thttps://github.com/someone/racer.git\r\n`);
+  r = runIn(path.join(BOX, "pc-sorted-home"), path.join(APP, "setup/wsl.sh"), ["install", pcSorted, pcWork, "TEST-PC", "join"]);
+  check("wsl.sh adding a PC from a computer with subject folders finishes", r.code === 0, r.code === 0 ? "" : r.out.slice(-800));
+  check("…puts claude-chat where it starts it from, and the rest in their subject folders",
+    r.calls.includes(`git clone -q ${REPO} ${path.join(pcSorted, "claude-chat")}`) && !r.calls.includes(path.join(pcSorted, "ai/claude-chat")) &&
+    r.calls.includes(`git clone -q https://github.com/someone/racer.git ${path.join(pcSorted, "game/racer")}`));
+  fs.writeFileSync(path.join(pcWork, "projects.txt"), `claude-chat\t${REPO}\r\n`);
   check("wsl.sh without a mode still adds a computer the old way, GitHub sign-in and all", r.code === 0 && r.calls.includes("gh auth login"), r.out.slice(-300));
 }
 

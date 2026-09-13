@@ -87,8 +87,10 @@ step "Your projects → $PROJECTS"
 # Name and address are split by a tab, so a project called "TODAK ACADEMY" stays in one piece.
 tr -d '\r' < "$WORK/projects.txt" | while IFS=$'\t' read -r name remote; do
   [ -n "$name" ] || continue
-  if [ -d "$PROJECTS/$name/.git" ]; then say "$name — already here"
-  elif git clone -q "$remote" "$PROJECTS/$name"; then say "$name — copied"
+  # Projects can sit in subject folders ("ai/claude-chat"); claude-chat itself always goes where the steps below expect it.
+  dest="$PROJECTS/$name"; [ "${name##*/}" = claude-chat ] && dest="$PROJECTS/claude-chat"
+  if [ -d "$dest/.git" ]; then say "$name — already here"
+  elif git clone -q "$remote" "$dest"; then say "$name — copied"
   else say "$name — couldn't copy it (see git's message above); carrying on with the rest"; fi
 done
 
