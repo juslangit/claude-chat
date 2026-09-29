@@ -245,6 +245,19 @@
   </div>
 </div>
 
+<!-- Naming a new chat: picking a project opens this, so several chats in one project don't all
+     end up with the same name. Skip and it's named after the project, as it always was. -->
+<div id="name-sheet" class="sheet" hidden>
+  <div class="card">
+    <div class="grabber"></div>
+    <div class="sheet-nav"><button id="name-back" class="link">Back</button><b>Name this chat</b><span></span></div>
+    <p id="name-where" class="sheet-note"></p>
+    <input id="name-input" class="field" placeholder="What's this chat about?" autocomplete="off" autocapitalize="sentences" maxlength="60" enterkeyhint="go">
+    <button id="name-go" class="btn">Start chat</button>
+    <button id="name-skip" class="btn plain">Skip</button>
+  </div>
+</div>
+
 <!-- ── Your Claude account ──────────────────────────── -->
 <div id="profile-sheet" class="sheet" hidden>
   <div class="card">

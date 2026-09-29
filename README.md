@@ -27,8 +27,10 @@ directly, and each chat opens as a **Windows Terminal** tab.
   window on the computer — a Terminal window on a Mac, a Windows Terminal tab on a PC. Type in either
   place; both stay in sync.
 - Tap **+** on the phone, pick the computer, then pick a project, the way you'd pick a contact in
-  WhatsApp. A new window with Claude Code opens on that computer inside that project (or in the project
-  folder itself if you pick "Whole project folder") — so whatever you build lands in the project folder.
+  WhatsApp. It then asks what to call the chat, so several chats in one project don't all share the
+  project's name — tap **Skip** and it takes that name anyway. A new window with Claude Code opens on
+  that computer inside that project (or in the project folder itself if you pick "Whole project
+  folder") — so whatever you build lands in the project folder.
 - When Claude wants to run a command, the phone shows **Approve / Deny** (and the computer's window shows
   its usual prompt at the same time; either can answer). File edits go ahead without asking. You can
   change how much it asks — see [Permissions and memory](#permissions-and-memory).
@@ -135,7 +137,7 @@ This only happens once.
    **On Android:** open the same address in **Chrome**, then tap **⋮ → Install app** (or **Add to Home
    screen**). It gets its own icon and opens full-screen like any other app, and the Back button goes back
    inside it — from a chat to the list.
-3. Tap **+**, choose **Whole project folder**, and ask Claude for something — "make me a small web page
+3. Tap **+**, choose **Whole project folder**, name the chat (or **Skip**), and ask Claude for something — "make me a small web page
    about cats" is a good first try. The new project appears in `Desktop/project` on your computer.
    You can sort projects into subject folders there (`game/`, `web/`…) and New chat lists them as `game/my-game`.
 
@@ -149,7 +151,7 @@ The server's log (see [Mac and Windows side by side](#mac-and-windows-side-by-si
 
 | I want to… | Do this |
 |---|---|
-| Start a chat from the phone | Tap **+**, pick the computer, then pick a project |
+| Start a chat from the phone | Tap **+**, pick the computer, pick a project, then name the chat |
 | Start a chat on the computer that shows on the phone | `cchat` or `cchat my chat name` — run inside a project folder and the chat starts in that project (on Windows, in the Ubuntu window) |
 | Keep a chat private to the computer | Plain `claude`, as before |
 | Stop Claude mid-answer | Red **■** button (same as pressing Esc) |

@@ -1137,15 +1137,41 @@ function ago(ts) {
   return days < 7 ? `${days} days ago` : new Date(ts).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 }
 
+// Picking a project doesn't start the chat straight away — it asks what to call it first. Without
+// that, every chat in the same project comes out with the same name and the list reads as a row of
+// identical rows. Skip leaves the naming to the computer, as it was before.
 let starting = false;
-$("#new-sheet").addEventListener("click", async (e) => {
+let pendingStart = null; // the project waiting for a name: { comp, project }
+
+$("#new-sheet").addEventListener("click", (e) => {
   const pick = e.target.closest(".pick");
   if (!pick || starting) return;
+  askChatName(newOn, pick.dataset.project || "");
+});
+
+function askChatName(comp, project) {
+  pendingStart = { comp, project };
+  openSheet("#name-sheet");
+  const where = project || "the whole project folder";
+  const many = state.computers.filter((c) => c.online).length > 1;
+  $("#name-where").textContent = `Starting in ${where}${many ? ` on ${comp.name || "this computer"}` : ""}.`;
+  const input = $("#name-input");
+  input.value = "";
+  input.placeholder = project ? `What are you doing in ${project}?` : "What's this chat about?";
+  input.focus();
+}
+
+// Skip sends no name, and the computer falls back to the project's own name.
+async function startChat(name) {
+  if (!pendingStart || starting) return;
+  const { comp, project } = pendingStart;
   starting = true;
-  pick.classList.add("busy");
+  $("#name-go").disabled = $("#name-skip").disabled = true;
   try {
-    const c = tag(newOn, await api("/api/chats", { body: { project: pick.dataset.project || undefined } }, newOn));
+    const c = tag(comp, await api("/api/chats", { body: { project: project || undefined, name: name || undefined } }, comp));
     state.chats.set(c.key, c);
+    pendingStart = null;
+    closeSheets();
     go(`chat/${c.key}`);
     // Started from Home's box: what you typed there is the first thing Claude hears.
     if (pendingAsk) {
@@ -1158,8 +1184,16 @@ $("#new-sheet").addEventListener("click", async (e) => {
     toast(err.message);
   } finally {
     starting = false;
-    pick.classList.remove("busy");
+    $("#name-go").disabled = $("#name-skip").disabled = false;
   }
+}
+$("#name-go").onclick = () => startChat($("#name-input").value.trim());
+$("#name-skip").onclick = () => startChat("");
+$("#name-back").onclick = () => { pendingStart = null; openNewChat(); }; // back to the project list
+$("#name-input").addEventListener("keydown", (e) => {
+  if (e.key !== "Enter") return;
+  e.preventDefault();
+  startChat($("#name-input").value.trim());
 });
 
 $("#computers-btn").onclick = () => go("computers");
