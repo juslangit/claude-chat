@@ -17,6 +17,7 @@ self.addEventListener("push", (e) => {
   const key = keyOf(d);
   e.waitUntil(self.registration.showNotification(d.title || "Claude Chats", {
     body: d.body || "", tag: d.tag || key || "claude-chat", icon: "/icon.png", data: { key },
+    badge: "/badge.png", // the small white shape Android shows in the status bar
   }));
 });
 

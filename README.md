@@ -1,8 +1,8 @@
 # claude-chat
 
-Use Claude Code on your computer at home — a **Mac or a Windows PC** — from your iPhone, like WhatsApp.
+Use Claude Code on your computer at home — a **Mac or a Windows PC** — from your iPhone or Android phone, like WhatsApp.
 
-> **Status: early.** Built by one person for their own Mac, Windows PC and iPhone, and open for anyone to
+> **Status: early.** Built by one person for their own Mac, Windows PC and iPhone (Android works too), and open for anyone to
 > try. It's free: it runs Claude Code on your own computer, on your own Claude plan. Nothing goes through
 > anyone else's server. Jump to **[Install it](#install-it)**.
 
@@ -12,8 +12,9 @@ Use Claude Code on your computer at home — a **Mac or a Windows PC** — from 
 |---|---|
 | **A computer** | A Mac, or a Windows 10/11 PC (Windows 10 also needs **Windows Terminal** from the Microsoft Store). You can have several — the phone shows the chats of all of them. |
 | **A Claude plan** | **Pro** or **Max**, for Claude Code. |
-| **Tailscale** | Free. On the computer and on the iPhone, both signed in to the same account. |
+| **Tailscale** | Free. On the computer and on the phone, both signed in to the same account. |
 | **An iPhone** | Safari is enough. Notifications need iOS 16.4 or later. |
+| **…or an Android phone** | Chrome. Notifications work in the installed app or straight in Chrome. |
 
 On a **Windows PC**, Claude Code runs inside **WSL** (Windows' own built-in Linux), because claude-chat
 needs tmux and tmux only runs on Linux and Mac. You don't have to work in Linux yourself: your projects
@@ -42,7 +43,8 @@ directly, and each chat opens as a **Windows Terminal** tab.
 - **Voice.** Hold 🎤 in the typing bar, talk, and let go to send (slide left to cancel). Or tap 📞 at
   the top of a chat for a call: you talk, Claude answers out loud in a few short sentences, then it
   listens again. Speech uses the iPhone's own recognition and voice — works in Safari and the Home
-  Screen app.
+  Screen app. On Android it uses Chrome's speech recognition (Google's, which may process speech
+  online) and the phone's own voice.
 - While Claude works, the "typing…" bubble shows its latest progress note and step. Steps read in
   plain English ("Edited style.css"), with the raw command in small print underneath.
 
@@ -74,16 +76,16 @@ You need a Claude **Pro** or **Max** plan ([claude.ai](https://claude.ai) → Up
   in step 3 installs it there for you. If you already use Claude Code on Windows, that copy keeps working;
   you'll just log in once more inside Ubuntu, in step 4.
 
-### Step 2 — Tailscale, on the computer and the iPhone
+### Step 2 — Tailscale, on the computer and the phone
 
-Tailscale is a free private network made of your own devices, so only your iPhone can reach claude-chat —
+Tailscale is a free private network made of your own devices, so only your phone can reach claude-chat —
 nobody else on the internet can.
 
 1. On the **computer**, install Tailscale — Mac: from the **App Store**; Windows:
    [tailscale.com/download/windows](https://tailscale.com/download/windows) — and sign in. Signing in
    with Google, Microsoft, GitHub or Apple is fine.
-2. On the **iPhone**, install **Tailscale** from the App Store, sign in with the **same account**, and
-   switch it on.
+2. On the **phone**, install **Tailscale** — iPhone: App Store; Android: Google Play — sign in with the
+   **same account**, and switch it on (on Android, accept the VPN request; it's how Tailscale connects).
 
 ### Step 3 — Set up claude-chat
 
@@ -124,11 +126,15 @@ On Windows, open **Ubuntu** from the Start menu and paste the line the setup sho
 `Desktop\project` folder). Log in if it asks, choose **Yes, I trust this folder**, then type `/exit`.
 This only happens once.
 
-### Step 5 — Open it on the iPhone
+### Step 5 — Open it on the phone
 
 1. The setup's last line is your computer's address, like `https://my-mac.tail1234.ts.net`. Open it in
    **Safari** on the iPhone (with Tailscale switched on).
 2. Tap **Share → Add to Home Screen**. From now on, open it from your Home Screen — it's called **Claude Mac** or **Claude PC**, after the computer.
+
+   **On Android:** open the same address in **Chrome**, then tap **⋮ → Install app** (or **Add to Home
+   screen**). It gets its own icon and opens full-screen like any other app, and the Back button goes back
+   inside it — from a chat to the list.
 3. Tap **+**, choose **Whole project folder**, and ask Claude for something — "make me a small web page
    about cats" is a good first try. The new project appears in `Desktop/project` on your computer.
    You can sort projects into subject folders there (`game/`, `web/`…) and New chat lists them as `game/my-game`.
@@ -208,7 +214,12 @@ told to save with `mem remember` instead.
 
 ## Notifications
 
-The iPhone only allows notifications for apps on the Home Screen (iOS 16.4 or later). Open the app (**Claude Mac** or
+**Android:** open the app, ⋯ → **Notifications** → Allow. That's all — Chrome allows them with or without
+installing, and they show in the status bar with the app's speech-bubble shape. If you once said no,
+long-press the app's icon → App info → Notifications to turn them back on. On Android they travel
+through Google's push service instead of Apple's, encrypted the same way.
+
+**iPhone:** the iPhone only allows notifications for apps on the Home Screen (iOS 16.4 or later). Open the app (**Claude Mac** or
 **Claude PC**) from the Home Screen, then ⋯ → **Notifications** → Allow; a test one arrives straight away. From then on,
 every computer — Mac or PC — sends one when Claude finishes a reply or needs you (a question or an
 approval) — but not while you have the app open in front of you. Tap one to open that chat. Each computer's own app asks for

@@ -3,6 +3,11 @@
 // "online / typing… / last seen" under the name, and a chat info page when you tap the name.
 
 const $ = (sel) => document.querySelector(sel);
+// The same app runs on an iPhone (Safari) and on Android (Chrome); only the words for "phone",
+// settings paths and how to install it differ.
+const ANDROID = /Android/i.test(navigator.userAgent);
+const PHONE = ANDROID ? "phone" : "iPhone";
+const BROWSER = ANDROID ? "Chrome" : "Safari";
 const state = {
   chats: new Map(),    // id → summary from the server
   messages: new Map(), // id → messages, once a chat has been opened
@@ -327,7 +332,7 @@ function renderComputers() {
 // Above the chat list, a note for each computer the phone can't reach — or one for the phone itself.
 function renderOfflineNotes() {
   $("#offline-notes").innerHTML = navigator.onLine === false
-    ? `<div class="offline-note"><b>This iPhone is offline.</b><small>Your chats catch up when it's back on the internet.</small></div>`
+    ? `<div class="offline-note"><b>This ${PHONE} is offline.</b><small>Your chats catch up when it's back on the internet.</small></div>`
     : state.computers.filter((c) => !c.online && c.offlineSince).map((c) => `<div class="offline-note">
         <b>${esc(c.name || "This computer")}</b> — ${offlineText(c)}
         <small>It may be asleep, switched off or off Wi-Fi. Its chats catch up when it's back.</small></div>`).join("");
@@ -1351,7 +1356,9 @@ function listen(onWords, onBlocked) {
   const rec = new (speechApi())();
   rec.lang = "en-US";
   rec.interimResults = true;
-  rec.continuous = true;
+  // Android's Chrome repeats earlier words in each result when listening continuously, so there it
+  // hears one phrase at a time — onend below starts it again and keeps what it already had.
+  rec.continuous = !ANDROID;
   let kept = "", heard = "", wanted = true, finish, startedAt = 0, quickEnds = 0;
   const done = new Promise((resolve) => (finish = resolve));
   const all = () => `${kept} ${heard}`.replace(/\s+/g, " ").trim();
@@ -1382,7 +1389,9 @@ function listen(onWords, onBlocked) {
 function micBlocked() {
   if (recording) endRecording(false, true);
   endCall();
-  toast("The microphone is blocked. Allow it in Settings → Apps → Safari → Microphone, then try again.");
+  toast(ANDROID
+    ? "The microphone is blocked. Tap the ⋮ or lock icon by the address → Permissions → Microphone → Allow, or in Settings → Apps → Chrome → Permissions, then try again."
+    : "The microphone is blocked. Allow it in Settings → Apps → Safari → Microphone, then try again.");
 }
 
 let voice = null; // the nicest English voice on the phone (the same pick as Sky)
@@ -1402,7 +1411,7 @@ mic.addEventListener("contextmenu", (e) => e.preventDefault());
 mic.addEventListener("pointerdown", (e) => {
   e.preventDefault();
   if (recording) return;
-  if (!speechApi()) return toast("Voice needs Safari on your iPhone.");
+  if (!speechApi()) return toast(`Voice needs ${BROWSER} on your ${PHONE}.`);
   try { mic.setPointerCapture(e.pointerId); } catch {}
   unlockAudio();
   recording = { x: e.clientX, started: Date.now() };
@@ -1453,11 +1462,13 @@ function setCallMode(mode, text) { $("#call").dataset.mode = mode; $("#call-stat
 
 $("#call-btn").onclick = startCall;
 $("#info-call").onclick = () => { closeSheets(); startCall(); };
+// Android's Chrome hands speech to Google's recognition, which may leave the phone — don't claim otherwise.
+if (ANDROID) $("#call-where").textContent = "Voice call · uses Android's speech recognition";
 
 async function startCall() {
   const c = state.chats.get(state.current);
   if (!c) return;
-  if (!speechApi() || !window.speechSynthesis) return toast("Voice calls need Safari on your iPhone.");
+  if (!speechApi() || !window.speechSynthesis) return toast(`Voice calls need ${BROWSER} on your ${PHONE}.`);
   if (c.status === "ended") return toast("Claude has stopped in this chat. Tap Resume first.");
   Object.assign(call, { on: true, chatId: c.key, since: Date.now(), muted: false, speaking: false, awaiting: false, queue: [], spoken: new Set(), listener: null, current: null, micFails: 0 });
   speechSynthesis.cancel();
@@ -1977,10 +1988,13 @@ $("#notify-toggle").onclick = async () => {
   if (!canPush()) {
     return toast(/iPhone|iPad/.test(navigator.userAgent) && !onHomeScreen()
       ? "Add this app to your Home Screen first (Share → Add to Home Screen), then turn notifications on in there."
+      : ANDROID ? "Notifications need Chrome. Open this link in Chrome, ideally as the installed app (⋮ → Install app)."
       : "Notifications don't work in this browser.");
   }
   // Asked straight away, while it still counts as your tap — iPhones insist on that.
-  if ((await Notification.requestPermission()) !== "granted") return toast("Notifications are off for this app. Turn them on in Settings → Notifications → Claude Chats.");
+  if ((await Notification.requestPermission()) !== "granted") return toast(ANDROID
+    ? "Notifications are blocked for this app. Long-press its icon → App info → Notifications, turn them on, then try again."
+    : "Notifications are off for this app. Turn them on in Settings → Notifications → Claude Chats.");
   try {
     const { key } = await api("/api/push/key");
     const reg = await navigator.serviceWorker.ready;
@@ -2247,7 +2261,9 @@ function arrived() {
   if (inHomeScreenApp() || read("iconHint", false)) return toast(`You're on ${where}`);
   const icon = document.querySelector('meta[name="apple-mobile-web-app-title"]')?.content || "Claude";
   $("#link-hint-title").textContent = `You're on ${where}'s own app`;
-  $("#link-hint-text").textContent = `To give it its own icon, called ${icon}: tap Share, then Add to Home Screen. If it opened on top of your other app, tap the Safari button first.`;
+  $("#link-hint-text").textContent = ANDROID
+    ? `To give it its own icon, called ${icon}: tap ⋮ (top right in Chrome), then Install app or Add to Home screen.`
+    : `To give it its own icon, called ${icon}: tap Share, then Add to Home Screen. If it opened on top of your other app, tap the Safari button first.`;
   $("#link-hint").hidden = false;
 }
 $("#link-hint-ok").onclick = () => { write("iconHint", true); $("#link-hint").hidden = true; };

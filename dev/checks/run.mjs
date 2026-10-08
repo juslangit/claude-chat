@@ -19,6 +19,7 @@ const SUITES = [
   { name: "accounts", about: "which Claude account a chat runs as", minutes: 2, claude: false },
   { name: "projects", about: "the New chat project list, with projects sorted into subject folders", minutes: 1, claude: false },
   { name: "setup", about: "a new person's computer, and the setup scripts", minutes: 1, claude: false },
+  { name: "android", about: "the app as Chrome on an Android phone sees it", minutes: 1, claude: false },
   { name: "files", about: "files coming back from Claude to the phone", minutes: 3, claude: true },
   { name: "context", about: "how full Claude's memory is, and compacting", minutes: 3, claude: true },
   { name: "features", about: "photos, pins, search, replies, notifications", minutes: 6, claude: true },
